@@ -1,12 +1,12 @@
 # Lennart Terminal
 
-A Warp.dev-inspired terminal for Windows with an integrated **AI agent** — chat with your terminal, or let the AI take over and run a whole job for you.
+A AI-inspired terminal for Windows with an integrated **AI agent** — chat with your terminal, or let the AI take over and run a whole job for you.
 
 ![status](https://img.shields.io/badge/platform-Windows-blue) ![license](https://img.shields.io/badge/license-MIT-green)
 
 ## Features
 
-- **Warp-style UI** — dark theme, left sidebar with shells, tabbed terminals, and the signature bottom prompt box
+- **UI** — dark theme, left sidebar with shells, tabbed terminals, and the signature bottom prompt box
 - **Real PTY sessions** — full-color PowerShell / PowerShell 7 / cmd / Git Bash tabs (ConPTY via node-pty)
 - **AI chat panel** — streaming answers with command code blocks; every block gets **Copy / Insert / Run** buttons (Run types it into the active tab)
 - **Agent mode** — describe a job ("find what's eating port 3000 and kill it") and the agent plans, runs commands in your terminal, reads the output and adapts until done. Live step-by-step view, Stop button, and a hard deny-list for dangerous commands
