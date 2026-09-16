@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self';" />
+  <title>Lennart Terminal</title>
+  <link rel="stylesheet" href="css/warp.css" />
+</head>
+<body>
+  <!-- Custom drag region (frameless window) -->
+  <div id="titlebar">
+    <div class="titlebar-drag"></div>
+    <div class="titlebar-title">
+      <span class="logo-dot"></span> Lennart Terminal
+    </div>
+    <div class="titlebar-actions">
+      <button id="btn-settings" class="tb-btn" title="Settings (Ctrl+,)">&#9881;</button>
+      <button id="btn-devtools" class="tb-btn" title="Toggle Developer Tools">&#128366;</button>
+      <button id="btn-minimize" class="tb-btn" title="Minimize">&#8211;</button>
+      <button id="btn-maximize" class="tb-btn" title="Maximize">&#9633;</button>
+      <button id="btn-close" class="tb-btn tb-close" title="Close">&#10005;</button>
+    </div>
+  </div>
+
+  <div id="app">
+    <!-- ============ Left sidebar ============ -->
+    <aside id="sidebar">
+      <div class="side-section">
+        <div class="side-label">Session</div>
+        <button id="btn-new-tab" class="side-btn primary" title="New terminal tab (Ctrl+T)">
+          <span class="ico">&#65291;</span> New Tab
+        </button>
+      </div>
+
+      <div class="side-section">
+        <div class="side-label">Shells</div>
+        <button class="side-btn shell-btn" data-shell="powershell">PowerShell</button>
+        <button class="side-btn shell-btn" data-shell="pwsh">PowerShell 7</button>
+        <button class="side-btn shell-btn" data-shell="cmd">Command Prompt</button>
+        <button class="side-btn shell-btn" data-shell="gitbash">Git Bash</button>
+      </div>
+
+      <div class="side-section">
+        <div class="side-label">AI</div>
+        <button id="btn-toggle-ai" class="side-btn" title="Show/hide AI panel (Ctrl+J)">
+          <span class="ico">&#10022;</span> AI Panel
+        </button>
+        <button id="btn-agent-mode" class="side-btn" title="Toggle agent system prompt">
+          <span class="ico">&#9679;</span> Agent Mode: <span id="agent-mode-state">On</span>
+        </button>
+      </div>
+
+      <div class="side-footer">
+        <div class="status-row"><span class="status-dot" id="ai-status-dot"></span><span id="ai-status-text">AI: checking…</span></div>
+        <div class="status-row" id="version-row">v0.1.0</div>
+      </div>
+    </aside>
+
+    <!-- ============ Main column ============ -->
+    <main id="main">
+      <!-- Tab strip -->
+      <div id="tabstrip">
+        <div id="tabs"></div>
+        <button id="btn-new-tab-inline" title="New tab">+</button>
+      </div>
+
+      <!-- Terminal + AI split -->
+      <div id="content">
+        <section id="term-pane">
+          <div id="terminal-container"></div>
+
+          <!-- Warp-style bottom prompt box -->
+          <div id="prompt-box">
+            <div class="prompt-row">
+              <span class="prompt-icon">&#10095;</span>
+              <input id="prompt-input" type="text" spellcheck="false" autocomplete="off"
+                     placeholder="Ask AI, or type a command and press Enter…" />
+              <span id="cwd-label" class="cwd-label" title="Working directory"></span>
+            </div>
+            <div class="prompt-hint">
+              <kbd>Enter</kbd> run &nbsp;·&nbsp; <kbd>Ctrl+Enter</kbd> ask AI &nbsp;·&nbsp;
+              <kbd>Ctrl+J</kbd> panel &nbsp;·&nbsp; <kbd>Ctrl+,</kbd> settings
+            </div>
+          </div>
+        </section>
+
+        <section id="ai-pane">
+          <header id="ai-header">
+            <div class="ai-title"><span class="ico">&#10022;</span> <span id="ai-model-label">AI</span></div>
+            <div class="mode-chips">
+              <button id="chip-chat" class="chip active" title="Almindelig chat — AI foreslår, du kører">Chat</button>
+              <button id="chip-agent" class="chip" title="Agent — AI overtager styringen og kører jobbet i terminalen">Agent</button>
+            </div>
+            <button id="btn-clear-chat" class="ai-head-btn" title="Clear conversation">Clear</button>
+          </header>
+          <div id="ai-messages"></div>
+          <div id="ai-suggestions"></div>
+          <form id="ai-composer">
+            <textarea id="ai-input" rows="2" placeholder="Spørg AI-en om noget… (Enter = send, Shift+Enter = nyt linjeskift)"></textarea>
+            <div class="ai-composer-row">
+              <button type="button" id="btn-send-terminal" title="Send last terminal output as context">Attach last output</button>
+              <span class="spacer"></span>
+              <button type="button" id="btn-ai-stop" title="Stop generating" hidden>Stop</button>
+              <button type="submit" id="btn-ai-send">Send</button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- ============ Settings dialog ============ -->
+  <div id="settings-overlay" class="hidden">
+    <div id="settings-dialog" role="dialog" aria-modal="true">
+      <header>
+        <h2>Settings</h2>
+        <button id="btn-close-settings" class="tb-btn" title="Close">&#10005;</button>
+      </header>
+
+      <div class="settings-body">
+        <section>
+          <h3>AI Provider</h3>
+
+          <label class="field">
+            <span>Provider</span>
+            <select id="set-provider"></select>
+          </label>
+
+          <div id="provider-status" class="provider-status"></div>
+
+          <label class="field" id="field-apikey">
+            <span>API-nøgle</span>
+            <div class="row">
+              <input id="set-apikey" type="password" placeholder="sk-…" />
+              <button id="btn-show-key" type="button" title="Vis/skjul">👁</button>
+            </div>
+            <small id="key-hint" class="small"></small>
+          </label>
+
+          <label class="field">
+            <span>Base URL <small>(tom = standard)</small></span>
+            <input id="set-baseurl" type="text" placeholder="http://127.0.0.1:11434" />
+          </label>
+
+          <label class="field">
+            <span>Model</span>
+            <div class="row">
+              <select id="set-model"><option value="">— refresh to load models —</option></select>
+              <button id="btn-refresh-models" type="button" title="Reload model list from server">&#8635;</button>
+            </div>
+          </label>
+
+          <label class="field">
+            <span>Temperature <b id="set-temp-label">0.4</b></span>
+            <input id="set-temp" type="range" min="0" max="1" step="0.05" value="0.4" />
+          </label>
+
+          <div class="field-check">
+            <label><input type="checkbox" id="set-agent-mode" /> Agent mode (system prompt with terminal rules)</label>
+            <label><input type="checkbox" id="set-confirm" /> Confirm before running destructive AI commands</label>
+          </div>
+
+          <div class="conn-row">
+            <button id="btn-test-conn" type="button">Test connection</button>
+            <span id="conn-result"></span>
+          </div>
+        </section>
+
+        <section>
+          <h3>Agent</h3>
+          <label class="field">
+            <span>Agent-motor</span>
+            <select id="set-agent-engine">
+              <option value="builtin">Indbygget autopilot (kører i din terminal)</option>
+              <option value="antigravity">Antigravity CLI (agy)</option>
+            </select>
+          </label>
+          <div class="field-check">
+            <label><input type="checkbox" id="set-agent-autoapprove" /> Auto-godkend agent-kommandoer (frarådes)</label>
+          </div>
+          <label class="field" id="field-agy-model">
+            <span>agy model</span>
+            <div class="row">
+              <select id="set-agy-model"><option value="">— standard —</option></select>
+              <button id="btn-refresh-agy" type="button" title="Hent modeller fra agy CLI">&#8635;</button>
+            </div>
+          </label>
+        </section>
+
+        <section>
+          <h3>Terminal</h3>
+          <label class="field">
+            <span>Default shell</span>
+            <select id="set-shell">
+              <option value="powershell">PowerShell</option>
+              <option value="pwsh">PowerShell 7 (pwsh)</option>
+              <option value="cmd">Command Prompt</option>
+              <option value="gitbash">Git Bash</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Font scale</span>
+            <input id="set-fontscale" type="range" min="0.7" max="1.6" step="0.05" value="1" />
+          </label>
+        </section>
+
+        <section class="settings-meta">
+          <h3>About</h3>
+          <div id="settings-paths" class="mono small"></div>
+          <div class="row gap">
+            <button id="btn-open-settings-file" type="button">Open settings.json</button>
+            <button id="btn-reset-settings" type="button" class="danger">Reset all settings</button>
+          </div>
+        </section>
+      </div>
+
+      <footer>
+        <span class="small" id="settings-save-note"></span>
+        <span class="spacer"></span>
+        <button id="btn-save-settings" class="primary">Save</button>
+      </footer>
+    </div>
+  </div>
+
+  <script src="../../node_modules/@xterm/xterm/lib/xterm.js"></script>
+  <script src="../../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+  <script src="../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js"></script>
+  <script src="../../node_modules/@xterm/addon-search/lib/addon-search.js"></script>
+  <script src="js/terminal.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/settings.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

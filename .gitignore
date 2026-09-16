@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Portable dev toolchain (downloaded, not committed)
+tools/
+
+# Build output
+dist/
+out/
+
+# Logs
+*.log
+logs/
+
+# OS junk
+Thumbs.db
+.DS_Store
+Desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Local env / secrets — never commit API keys
+.env
+.env.*
+*.key
+
+# Freebuff agent workspace state
+.freebuff/

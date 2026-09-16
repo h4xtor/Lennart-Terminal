@@ -1,0 +1,11 @@
+# Normalize line endings across platforms
+* text=auto
+
+# Windows scripts must keep CRLF
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Never touch binaries
+*.png binary
+*.ico binary
+*.asar binary
