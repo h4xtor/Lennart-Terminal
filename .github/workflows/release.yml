@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Syntax check + tests
+        run: |
+          npm run check
+          npm test
+
+      - name: Build portable zip
+        shell: pwsh
+        run: ./scripts/build-portable.ps1 -OutDir dist
+
+      - name: Create GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $zip = Get-ChildItem dist -Filter *.zip | Select-Object -First 1
+          $notes = @"
+          **Lennart Terminal $env:GITHUB_REF_NAME**
+
+          **Install:** unzip the file anywhere and double-click start-lennart-terminal.cmd — no installation or Node.js needed (Windows 10/11, 64-bit).
+
+          AI providers (Ollama, OpenRouter, OmniRoute, LM Studio, Claude, Gemini, Qwen, Kimi) are configured in the app under Settings (Ctrl+,). See the [README](https://github.com/$env:GITHUB_REPOSITORY#readme) for setup details.
+          "@
+          Set-Content -Path release-notes.md -Value $notes -Encoding utf8
+          gh release create $env:GITHUB_REF_NAME $zip.FullName --title "Lennart Terminal $env:GITHUB_REF_NAME" --notes-file release-notes.md

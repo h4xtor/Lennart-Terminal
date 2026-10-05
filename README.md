@@ -2,7 +2,7 @@
 
 A AI-inspired terminal for Windows with an integrated **AI agent** — chat with your terminal, or let the AI take over and run a whole job for you.
 
-![status](https://img.shields.io/badge/platform-Windows-blue) ![license](https://img.shields.io/badge/license-MIT-green)
+[![CI](https://github.com/h4xtor/Lennarts-Terminal/actions/workflows/ci.yml/badge.svg)](https://github.com/h4xtor/Lennarts-Terminal/actions/workflows/ci.yml) ![platform](https://img.shields.io/badge/platform-Windows-blue) ![license](https://img.shields.io/badge/license-MIT-green)
 
 ## Features
 
@@ -16,17 +16,18 @@ A AI-inspired terminal for Windows with an integrated **AI agent** — chat with
 
 ## Quick start
 
-```cmd
-:: first time only (installs dependencies into the project folder)
-tools\node-v24.19.0-win-x64\npm.cmd install
+### Option A — portable zip (nothing to install)
 
-:: then start the app
-start-lennart-terminal.cmd
-```
+Grab `LennartTerminal-portable-*.zip` from the [latest release](https://github.com/h4xtor/Lennarts-Terminal/releases/latest), unzip it anywhere and double-click `start-lennart-terminal.cmd`. No Node.js, no installer.
 
-Or from a terminal with Node on PATH:
+### Option B — run from source
+
+Install [Node.js](https://nodejs.org) (LTS), then:
 
 ```cmd
+git clone https://github.com/h4xtor/Lennarts-Terminal.git
+cd Lennarts-Terminal
+npm install
 npm start
 ```
 
@@ -88,6 +89,15 @@ Settings → *Agent* lets you choose who drives Agent mode:
 | `Ctrl+0` / `Ctrl+=` / `Ctrl+-` | Reset / zoom in / zoom out |
 | `Enter` (prompt box) | Run command in active tab |
 | `Ctrl+Enter` (prompt box) | Send prompt text to the AI |
+
+## Development
+
+```cmd
+npm run check   :: fast node --check syntax gate over all JS
+npm test        :: offline AI-layer tests (no provider needed)
+```
+
+Releases are automated: push a tag (`git tag v0.2.0 && git push origin v0.2.0`) and GitHub Actions builds the portable zip and publishes the release.
 
 ## Project layout
 
