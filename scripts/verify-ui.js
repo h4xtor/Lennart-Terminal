@@ -431,8 +431,9 @@ async function main() {
   `);
   assert(statusShown === true, 'chat shows a “Kører i terminalen" status line');
 
-  // ---- 5g. /help: the agent is told where the user stands ----
+  // ---- 5g. /help must answer locally, instantly and deterministically ----
   const assistantBefore = await evaluate(`document.querySelectorAll('#ai-messages .msg.assistant').length`);
+  const helpStarted = Date.now();
   await evaluate(`
     (function () {
       const inp = document.getElementById('ai-input');
@@ -441,8 +442,9 @@ async function main() {
       return true;
     })()
   `);
-  const helpDeadline = Date.now() + 130000;
+  const helpDeadline = Date.now() + 15000;
   let helpText = '';
+  let helpMs = 0;
   for (;;) {
     const state = JSON.parse(await evaluate(`JSON.stringify({
         n: document.querySelectorAll('#ai-messages .msg.assistant').length,
@@ -450,15 +452,20 @@ async function main() {
         err: [...document.querySelectorAll('#ai-messages .msg.error')].some((e) => /AI error/.test(e.textContent)),
       })`));
     if (state.n > assistantBefore && state.last.trim().length > 40 && !state.err &&
-        /(hvor du står|årsag|løsning|tjek)/i.test(state.last)) {
+        /(hvor du står|tjek først|genveje)/i.test(state.last)) {
       helpText = state.last;
+      helpMs = Date.now() - helpStarted;
       break;
     }
     if (state.err) throw new Error('/help produced an AI error instead of help');
     if (Date.now() > helpDeadline) throw new Error(`/help timeout — last: ${state.last.slice(0, 140)}`);
-    await new Promise((r) => setTimeout(r, 1500));
+    await new Promise((r) => setTimeout(r, 300));
   }
   assert(helpText.length > 40, `/help answered with contextual help (${helpText.slice(0, 70).replace(/\n/g, ' ')}...)`);
+  // Local help carries the live shortcut list — a model answer never does.
+  assert(helpText.includes('Ctrl+J') && helpText.includes('Tjek først') && helpText.includes('Hvor du står'),
+    '/help is the deterministic local answer (shortcuts + checks, not a model guess)');
+  assert(helpMs < 6000, `/help is instant — no model round-trip (${helpMs}ms)`);
 
   // ---- 5h. the terminal re-fits when the pane shrinks (no hidden bottom) ----
   // Poll until the layout settles (the refit is event-driven) and ALWAYS

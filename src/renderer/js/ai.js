@@ -118,13 +118,11 @@ function onAiSubmit(e) {
   // The user just asked something — always follow the answer
   aiState.stickToBottom = true;
 
-  // /help — send the live context (where the user stands, recent output,
-  // provider state) so the agent can diagnose and propose fixes
+  // /help — answer locally and instantly. The embedded model is far too small
+  // to diagnose reliably (it happily invents “Sandsynlige årsager”), and a
+  // help request must NEVER depend on a model being reachable.
   if (/^\/(help|hjælp|hjaelp)\b/i.test(text)) {
-    aiEls.input.value = '';
-    aiEls.input.style.height = 'auto';
-    if (aiState.streaming) return;
-    sendHelpRequest(text);
+    showLocalHelp(text);
     return;
   }
 
@@ -196,18 +194,26 @@ async function sendHelpRequest(text) {
   startStream();
 }
 
-/** Local, deterministic /help answer when the model is unavailable. */
-async function showLocalHelpFallback(err) {
+/**
+ * The deterministic /help answer: where the person stands, the shortcuts and
+ * the checks that actually matter. Built from the LIVE context, so it is
+ * always correct and always available — no model round-trip.
+ */
+async function localHelpMarkdown(err) {
   let ctx = '';
   try {
     ctx = await buildHelpContext();
   } catch { /* ignore */ }
   const where = ctx.split('\n\n').slice(0, 3).map((l) => `- ${l.replace(/\n/g, ' ')}`).join('\n');
-  const md = [
-    '### /help — lokal fejlsøgning (AI-svaret var ikke tilgængeligt)',
+  return [
+    '### /help — Lennart Terminal',
     '',
     '**Hvor du står**',
-    where,
+    where || '- (kontekst ikke tilgængelig endnu)',
+    '',
+    '**Genveje**',
+    '- `Ctrl+T` ny fane · `Ctrl+J` AI-panel · `Ctrl+H` historik · `Ctrl+,` Setup · `Ctrl+Shift+C` kopiér markering',
+    '- I prompt-boksen nederst: `Enter` = kør kommandoen · `Ctrl+Enter` = spørg AI-en',
     '',
     '**Tjek først**',
     '1. Indbygget AI: `Get-Process llama-server` og `(Invoke-WebRequest -UseBasicParsing http://127.0.0.1:9601/health).Content` — starter den ikke, åbn **Setup → Hent modeller**.',
@@ -215,9 +221,47 @@ async function showLocalHelpFallback(err) {
     '3. Fjern-PC: `Test-NetConnection <IP> -Port 22` — slå SSH til på mål-PC’en via **Setup → “Slå SSH til”** (admin), eller WinRM med `Enable-PSRemoting -Force`.',
     '4. Kommandoer køres ikke? Se om fanen er en fjern-fane (navnet øverst) — der køres alt på fjernværten.',
     '',
+    '**Brug af AI-en**',
+    '- Skriv et spørgsmål i boksen her til højre; kodeblokke får knapperne **Kør**, **Insert** og **Copy**.',
+    '- **Setup → Hent modeller** henter stærkere modeller (Qwen3 8B, Qwen2.5 Coder 7B, DeepSeek R1 7B) til den indbyggede AI.',
+    '- Bed mig om en dybdegående diagnose via knappen herunder, hvis du vil have AI-en til at kigge på konteksten.',
     err ? `_(Fejl: ${err}) — prøv igen senere.)_` : '',
   ].filter(Boolean).join('\n');
+}
+
+/** /help rendered straight into the chat (no streaming, no model). */
+async function showLocalHelp(text) {
+  const label = text || '/help';
+  aiEls.input.value = '';
+  aiEls.input.style.height = 'auto';
+  if (aiState.streaming) return;
+  aiState.messages.push({ role: 'user', content: label });
+  appendMessageEl('user', label);
+  const md = await localHelpMarkdown('');
+  aiState.messages.push({ role: 'assistant', content: md });
   appendMessageEl('assistant', md);
+  scrollBottom(true);
+  offerAiDiagnosis();
+}
+
+/** One chip: let the model add a diagnosis on top of the local answer. */
+function offerAiDiagnosis() {
+  if (!aiEls.suggestions) return;
+  aiEls.suggestions.innerHTML = '';
+  const b = document.createElement('button');
+  b.className = 'suggestion';
+  b.textContent = '🤖 Bed AI-en om en dybdegående diagnose';
+  b.title = 'Lader modellen kigge på konteksten (kræver at AI-en svarer)';
+  b.addEventListener('click', () => {
+    aiEls.suggestions.innerHTML = '';
+    sendHelpRequest('Forklar mere: hvor står jeg lige nu, hvad er de mest sandsynlige årsager, og hvad er løsningerne?');
+  });
+  aiEls.suggestions.appendChild(b);
+}
+
+/** Stream-error fallback: the local answer with the error noted. */
+async function showLocalHelpFallback(err) {
+  appendMessageEl('assistant', await localHelpMarkdown(err));
 }
 
 function startAgentJob(job) {

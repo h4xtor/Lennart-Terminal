@@ -31,40 +31,81 @@ const LOCAL_MODEL = {
   file: 'qwen2.5-coder-1.5b-instruct-q4_k_m.gguf',
   url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf',
   label: 'Qwen2.5 Coder 1.5B · PowerShell-assistent (offline)',
-  approxMB: 990,
+  approxMB: 1065,
 };
 
-// Extra small models the user can fetch from Settings → “Hent modeller”.
-// All are genuinely small (1.5–3B Q4) so they stay USB-friendly and fast on
-// the troubleshooting PCs. Files land in models/ and can be picked afterwards.
+// Downloadable models (Settings → “Hent modeller”).
+//
+// Every URL below was checked for (a) HTTP 200/206 without an API token and
+// (b) a SINGLE .gguf file — the downloader cannot reassemble sharded files.
+// Repos that require a licence (meta-llama, mistralai, microsoft) are replaced
+// by their ungated mirrors, because a gated URL just returns 401.
+//
+// Small = fast on a plain troubleshooting PC; 7–8B Q4 = the strongest models
+// that still run on CPU with a 4096 context.
 const MODEL_CATALOG = [
   {
     id: 'qwen2.5-coder-1.5b-instruct-q4_k_m',
     file: LOCAL_MODEL.file,
     url: LOCAL_MODEL.url,
     label: 'Qwen2.5 Coder 1.5B · indbygget PowerShell-assistent',
-    sizeMB: 990,
+    sizeMB: 1065,
   },
   {
     id: 'qwen2.5-coder-3b-instruct-q4_k_m',
     file: 'qwen2.5-coder-3b-instruct-q4_k_m.gguf',
     url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct-GGUF/resolve/main/qwen2.5-coder-3b-instruct-q4_k_m.gguf',
     label: 'Qwen2.5 Coder 3B · bedre til PowerShell',
-    sizeMB: 2000,
-  },
-  {
-    id: 'phi-3.5-mini-instruct-q4',
-    file: 'Phi-3.5-mini-instruct-q4.gguf',
-    url: 'https://huggingface.co/microsoft/Phi-3.5-mini-instruct-gguf/resolve/main/Phi-3.5-mini-instruct-q4.gguf',
-    label: 'Phi-3.5 Mini · Microsoft, stærk til kode',
-    sizeMB: 2300,
+    sizeMB: 2007,
   },
   {
     id: 'llama-3.2-3b-instruct-q4_k_m',
     file: 'Llama-3.2-3B-Instruct-Q4_K_M.gguf',
-    url: 'https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf',
-    label: 'Llama 3.2 3B · Meta',
-    sizeMB: 2000,
+    url: 'https://huggingface.co/unsloth/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf',
+    label: 'Llama 3.2 3B · hurtig generalist',
+    sizeMB: 1925,
+  },
+  {
+    id: 'phi-3.5-mini-instruct-q4_k_m',
+    file: 'Phi-3.5-mini-instruct-Q4_K_M.gguf',
+    url: 'https://huggingface.co/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_K_M.gguf',
+    label: 'Phi-3.5 Mini · Microsoft, stærk til kode',
+    sizeMB: 2282,
+  },
+  {
+    id: 'qwen3-8b-q4_k_m',
+    file: 'Qwen3-8B-Q4_K_M.gguf',
+    url: 'https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf',
+    label: 'Qwen3 8B · bedste allround-model (ræsonnerer selv)',
+    sizeMB: 4794,
+  },
+  {
+    id: 'qwen2.5-coder-7b-instruct-q4_k_m',
+    file: 'qwen2.5-coder-7b-instruct-q4_k_m.gguf',
+    url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/qwen2.5-coder-7b-instruct-q4_k_m.gguf',
+    label: 'Qwen2.5 Coder 7B · bedst til kode og PowerShell',
+    sizeMB: 4466,
+  },
+  {
+    id: 'deepseek-r1-distill-qwen-7b-q4_k_m',
+    file: 'DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf',
+    url: 'https://huggingface.co/unsloth/DeepSeek-R1-Distill-Qwen-7B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf',
+    label: 'DeepSeek R1 7B · stærk fejlsøgning og ræsonnement',
+    sizeMB: 4466,
+  },
+  {
+    id: 'llama-3.1-8b-instruct-q4_k_m',
+    file: 'Llama-3.1-8B-Instruct-Q4_K_M.gguf',
+    url: 'https://huggingface.co/unsloth/Llama-3.1-8B-Instruct-GGUF/resolve/main/Llama-3.1-8B-Instruct-Q4_K_M.gguf',
+    label: 'Llama 3.1 8B · Metas bedste åbne model',
+    sizeMB: 4692,
+  },
+  {
+    id: 'mistral-7b-instruct-v0.3-q4_k_m',
+    file: 'Mistral-7B-Instruct-v0.3-Q4_K_M.gguf',
+    url: 'https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf',
+    label: 'Mistral 7B v0.3 · hurtig og stabil',
+    sizeMB: 4170,
   },
 ];
 
