@@ -266,6 +266,15 @@ async function main() {
     `AI header shows the selected model ("${label}" vs "${selectedModel || 'hardcoded model'}")`,
   );
 
+  // The suggestion chips in the AI pane must be Danish
+  const sugg = JSON.parse(await evaluate(`JSON.stringify(
+      [...document.querySelectorAll('#ai-suggestions .suggestion')].map((b) => b.textContent.trim()))`));
+  assert(sugg.length >= 3, `AI pane shows suggestion chips (${sugg.length})`);
+  assert(sugg.every((s) => /^(Forklar|Skriv|Hvordan|Hvad|Hvorfor|Vis|Hjælp|Gør)/.test(s)),
+    `AI suggestions are in Danish (${JSON.stringify(sugg.slice(0, 2))})`);
+  assert(!sugg.some((s) => /^(Explain|How|Why|What|Write|Can)\b/.test(s)),
+    'no English suggestion chips');
+
   // ---- 3. brand sign bottom-left + colour/model settings present ----
   const brand = await evaluate(`(document.getElementById('brand-row') || {}).textContent || ''`);
   assert(brand.trim() === 'Lennart Terminal', `brand sign at the bottom-left ("${brand.trim()}")`);

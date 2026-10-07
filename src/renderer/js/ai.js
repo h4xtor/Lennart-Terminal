@@ -468,11 +468,12 @@ function appendMessageEl(role, text) {
 }
 
 function showSuggestions() {
+  // AI-panelets forslag skal altid være på dansk
   const ideas = [
-    'Explain the last command I ran',
-    'Write a PowerShell one-liner to list the 5 largest files under the current folder',
-    'Why is my git branch behind and how do I fix it?',
-    'How do I find which process is listening on port 3000?',
+    'Forklar den kommando, jeg lige kørte',
+    'Skriv en PowerShell-linje der viser de 5 største filer i denne mappe',
+    'Hvorfor er min git-gren bagud — og hvordan fikser jeg det?',
+    'Hvordan finder jeg ud af, hvilken proces der lytter på port 3000?',
   ];
   aiEls.suggestions.innerHTML = '';
   for (const idea of ideas) {
