@@ -1,7 +1,7 @@
 {
   "name": "lennart-terminal",
   "productName": "Lennart Terminal",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A Warp.dev-style terminal for Windows with an integrated local AI agent",
   "main": "src/main/main.js",
   "author": "Lennart",
@@ -10,7 +10,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --enable-logging",
-    "test": "node test/ai.test.js",
+    "test": "node test/run-all.js",
     "check": "node scripts/check.js",
     "pack": "electron-builder --dir",
     "dist": "electron-builder"

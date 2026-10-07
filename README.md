@@ -10,7 +10,10 @@ A AI-inspired terminal for Windows with an integrated **AI agent** — chat with
 - **Real PTY sessions** — full-color PowerShell / PowerShell 7 / cmd / Git Bash tabs (ConPTY via node-pty)
 - **AI chat panel** — streaming answers with command code blocks; every block gets **Copy / Insert / Run** buttons (Run types it into the active tab)
 - **Agent mode** — describe a job ("find what's eating port 3000 and kill it") and the agent plans, runs commands in your terminal, reads the output and adapts until done. Live step-by-step view, Stop button, and a hard deny-list for dangerous commands
-- **Bring any AI** — local (Ollama, LM Studio, llama.cpp) or cloud (OpenRouter, **OmniRoute**, OpenAI, Claude, Gemini, Qwen, Kimi) or the locally installed Antigravity CLI as the agent brain
+- **Bring any AI** — **indbygget offline-model** (Qwen2.5 Coder, hardkodet — virker uden internet), local (Ollama, LM Studio, llama.cpp) or cloud (OpenRouter, **OmniRoute**, OpenAI, Claude, Gemini, Qwen, Kimi) or the locally installed Antigravity CLI as the agent brain
+- **USB-portable** — put the folder (with a `Data` directory) on a USB stick and carry your terminal, AI, settings, hosts and **full history** between PCs. Perfect for troubleshooting machines on a LAN
+- **Network execution** — save hosts (SSH or WinRM) in the sidebar and run commands on remote PCs from dedicated remote tabs; output streams live and everything is logged
+- **Permanent history** — every command (local, remote, agent) and every AI Q&A is stored in `Data/history.jsonl`. Open it with the 📚 button or `Ctrl+H` and search across everything that has happened
 - **Keys stay local** — API keys are stored only in your local `settings.json` and sent only to the provider you chose. No telemetry, no middleman
 - **Safety net** — destructive AI commands ask for confirmation first; `format`, `diskpart`, `shutdown` and friends are always blocked
 
@@ -18,7 +21,9 @@ A AI-inspired terminal for Windows with an integrated **AI agent** — chat with
 
 ### Option A — portable zip (nothing to install)
 
-Grab `LennartTerminal-portable-*.zip` from the [latest release](https://github.com/h4xtor/Lennarts-Terminal/releases/latest), unzip it anywhere and double-click `start-lennart-terminal.cmd`. No Node.js, no installer.
+Grab `LennartTerminal-portable-*.zip` from the [latest release](https://github.com/h4xtor/Lennarts-Terminal/releases/latest), unzip it anywhere (USB stick works) and double-click `start-lennart-terminal.cmd`. No Node.js, no installer.
+
+The built-in offline AI downloads its engine + model (~1 GB) on first use — or ships **inside the release zip** when bundled, fully offline from minute one.
 
 ### Option B — run from source
 
@@ -30,6 +35,37 @@ cd Lennarts-Terminal
 npm install
 npm start
 ```
+
+## USB-stick mode (portable)
+
+1. Copy the portable folder to a USB stick
+2. Double-click `start-lennart-terminal.cmd`
+
+The launcher keeps **everything on the stick** in a `Data` folder next to the app:
+
+```
+USB:\LennartTerminal\
+├── start-lennart-terminal.cmd
+├── node_modules\…            (app + electron)
+└── Data\
+    ├── settings.json         (providers, API keys, hosts)
+    ├── history.jsonl         (permanent history — travels with you)
+    └── localai\              (offline AI engine + model)
+```
+
+Unplug, walk to the next PC, plug in, run — your AI, your hosts, your history, your keys. Nothing is left on the host PC.
+
+## Run commands on network PCs
+
+1. Click **+ Tilføj vært…** in the sidebar (or add hosts under Settings → Netværk)
+2. Choose **SSH** (recommended) or **WinRM**
+3. On each target PC, run the one-time SSH setup command (button in Settings → Netværk, run as admin):
+
+```powershell
+Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service sshd; Set-Service sshd -StartupType Automatic; New-NetFirewallRule -Name sshd -DisplayName "OpenSSH Server" -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
+```
+
+4. Click the host in the sidebar → a remote tab opens. Type commands in the bottom prompt box — they execute **on that PC**, stream output live, and land in the permanent history marked `REMOTE`.
 
 ## Connect an AI
 
@@ -97,7 +133,7 @@ npm run check   :: fast node --check syntax gate over all JS
 npm test        :: offline AI-layer tests (no provider needed)
 ```
 
-Releases are automated: push a tag (`git tag v0.2.0 && git push origin v0.2.0`) and GitHub Actions builds the portable zip and publishes the release.
+Releases are automated: push a tag (`git tag v0.2.0 && git push origin v0.2.0`) and GitHub Actions builds the portable zip and publishes the release. The workflow runs are public: [github.com/h4xtor/Lennarts-Terminal/actions](https://github.com/h4xtor/Lennarts-Terminal/actions).
 
 ## Project layout
 

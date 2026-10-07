@@ -18,6 +18,15 @@
 // ---------------------------------------------------------------------------
 
 const PROVIDERS = {
+  // ---- embedded (offline, hardcoded model — no setup) ----
+  'lennart-local': {
+    label: 'Indbygget, offline (Qwen2.5 Coder · PowerShell)',
+    group: 'Indbygget (offline)',
+    protocol: 'openai',
+    baseUrl: '',                 // resolved at runtime to the embedded llama.cpp server
+    needsKey: false,
+    hint: 'Kører 100% lokalt — perfekt på USB-stikket. Serveren startes automatisk.',
+  },
   // ---- local ----
   ollama: {
     label: 'Ollama (lokal)',
@@ -125,10 +134,16 @@ const PROVIDERS = {
 };
 
 const PROVIDER_GROUPS = [
+  'Indbygget (offline)',
   'Lokale / private',
   'Cloud (API-nøgle)',
   'Agent-motor',
 ];
+
+// Anything unknown in a saved settings file (renamed/removed provider from an
+// older build) falls back to the embedded offline AI instead of crashing chat
+// with "Failed to parse URL from /chat/completions".
+const DEFAULT_PROVIDER = 'lennart-local';
 
 // ---------------------------------------------------------------------------
 // Normalization + fetch helpers
@@ -142,7 +157,15 @@ function resolveConfig(cfg) {
   const info = providerInfo(cfg.provider) || {};
   const baseUrl = (cfg.baseUrl || '').trim() || info.baseUrl || '';
   const apiKey = (cfg.apiKey || '').trim();
-  return { provider: cfg.provider, protocol: info.protocol || 'openai', baseUrl, apiKey };
+  // Stale/unknown provider id (settings saved by an older build): the offline
+  // embedded assistant is the safe default — it needs no key, URL or model.
+  const provider = info ? cfg.provider : DEFAULT_PROVIDER;
+  return {
+    provider,
+    protocol: (info || providerInfo(DEFAULT_PROVIDER)).protocol || 'openai',
+    baseUrl,
+    apiKey,
+  };
 }
 
 function withTimeoutSignal(ms) {
@@ -172,7 +195,7 @@ async function listModels(cfg, { timeout = 6000 } = {}) {
   const { provider, protocol, baseUrl, apiKey } = resolveConfig(cfg);
 
   if (!baseUrl && provider !== 'antigravity-cli') {
-    throw new Error('Ingen base URL konfigureret');
+    throw new Error('Ingen base URL konfigureret — åbn Settings og vælg en udbyder (eller tilføj en base URL)');
   }
 
   if (protocol === 'ollama') {
@@ -264,27 +287,40 @@ async function chat(cfg, messages, { system, onToken, signal } = {}) {
   if (!model && provider !== 'antigravity-cli') {
     throw new Error('Ingen model valgt — åbn Settings og vælg en');
   }
+  // Never let a half-configured provider reach fetch with an empty URL
+  // (that surfaced as "Failed to parse URL from /chat/completions").
+  if (protocol === 'openai' && !baseUrl) {
+    throw new Error('AI-udbyder er ikke konfigureret — åbn Settings og vælg "Indbygget (offline)" eller udfyld en base URL');
+  }
 
   const temperature = Number.isFinite(cfg.temperature) ? cfg.temperature : 0.4;
+  // Model settings (Settings → Model-indstillinger). maxTokens 0 = provider
+  // default, topP 1 = standard sampling.
+  const maxTokens = Number(cfg.maxTokens) > 0 ? Number(cfg.maxTokens) : 0;
+  const topP = Number(cfg.topP) > 0 ? Number(cfg.topP) : 1;
 
   if (protocol === 'ollama') {
-    return chatOllama({ baseUrl, model, messages, system, temperature, onToken, signal });
+    return chatOllama({ baseUrl, model, messages, system, temperature, maxTokens, topP, onToken, signal });
   }
   if (protocol === 'anthropic') {
-    return chatAnthropic({ baseUrl, model, messages, system, temperature, apiKey, onToken, signal });
+    return chatAnthropic({ baseUrl, model, messages, system, temperature, maxTokens, topP, apiKey, onToken, signal });
   }
   if (protocol === 'agy') {
     return chatAgy({ messages, system, onToken, signal, model, allowTools: false });
   }
-  return chatOpenAICompatible({ baseUrl, model, messages, system, temperature, apiKey, onToken, signal });
+  return chatOpenAICompatible({ baseUrl, model, messages, system, temperature, maxTokens, topP, apiKey, onToken, signal });
 }
 
-async function chatOllama({ baseUrl, model, messages, system, temperature, onToken, signal }) {
+async function chatOllama({ baseUrl, model, messages, system, temperature, maxTokens, topP, onToken, signal }) {
   const body = {
     model,
     messages: system ? [{ role: 'system', content: system }, ...messages] : messages,
     stream: true,
-    options: { temperature },
+    options: {
+      temperature,
+      ...(maxTokens > 0 ? { num_predict: maxTokens } : {}),
+      ...(topP < 1 ? { top_p: topP } : {}),
+    },
   };
   const res = await fetch(`${baseUrl}/api/chat`, {
     method: 'POST',
@@ -299,7 +335,7 @@ async function chatOllama({ baseUrl, model, messages, system, temperature, onTok
   });
 }
 
-async function chatOpenAICompatible({ baseUrl, model, messages, system, temperature, apiKey, onToken, signal }) {
+async function chatOpenAICompatible({ baseUrl, model, messages, system, temperature, maxTokens, topP, apiKey, onToken, signal }) {
   const headers = { 'Content-Type': 'application/json' };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
   headers['HTTP-Referer'] = 'https://lennart-terminal.local';
@@ -309,6 +345,8 @@ async function chatOpenAICompatible({ baseUrl, model, messages, system, temperat
     model,
     stream: true,
     temperature,
+    ...(maxTokens > 0 ? { max_tokens: maxTokens } : {}),
+    ...(topP < 1 ? { top_p: topP } : {}),
     messages: system ? [{ role: 'system', content: system }, ...messages] : messages,
   };
   const res = await fetch(`${baseUrl}/chat/completions`, {
@@ -360,15 +398,20 @@ async function chatAgy({ messages, system, onToken, signal, model, allowTools })
   void res;
 }
 
-async function chatAnthropic({ baseUrl, model, messages, system, temperature, apiKey, onToken, signal }) {
+async function chatAnthropic({ baseUrl, model, messages, system, temperature, maxTokens, topP, apiKey, onToken, signal }) {
   if (!apiKey) throw new Error('Anthropic kræver en API-nøgle (Settings → API Keys)');
+
+  // Anthropic has no system-role messages — merge them into the system prompt
+  const systemText = [system, ...messages.filter((m) => m.role === 'system').map((m) => m.content)]
+    .filter(Boolean).join('\n\n');
 
   const body = {
     model,
-    max_tokens: 4096,
+    max_tokens: maxTokens > 0 ? maxTokens : 4096,
     temperature,
+    ...(topP < 1 ? { top_p: topP } : {}),
     stream: true,
-    ...(system ? { system } : {}),
+    ...(systemText ? { system: systemText } : {}),
     messages: messages
       .filter((m) => m.role !== 'system')
       .map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
@@ -565,13 +608,52 @@ function buildAgentSystemPrompt() {
   ].join('\n');
 }
 
+// ---------------------------------------------------------------------------
+// System prompt for the small embedded offline model (lennart-local).
+// The model is tiny (1.5–3B), so the prompt is short, concrete and heavily
+// anchored in PowerShell: it must produce runnable commands, not essays.
+// ---------------------------------------------------------------------------
+
+function buildPowerShellSystemPrompt() {
+  return [
+    'Du er Lennart Terminal\'s indbyggede offline-assistent på Windows.',
+    'Du er god til PowerShell og hjælper med fejlfinding på PC\'er.',
+    '',
+    'Du kender også selve appen “Lennart Terminal” og kan forklare den:',
+    '- Warp-agtig Windows-terminal: 20 netværksknapper i sidebar, dropdown-menuer øverst (Setup, Netværk, System, Processer, Disk, Sikkerhed, GPU & spil, Fejlfinding, Fjernstyring, AI), AI-chat til højre.',
+    '- Fjernstyring: quick-connect til en LAN-IP (SSH eller WinRM) åbner en fjern-fane hvor kommandoer køres på den anden PC. Kræver SSH slået til (Setup → “Slå SSH til”, admin) eller Enable-PSRemoting.',
+    '- Modeller: “Hent modeller” i Setup henter flere lokale GGUF-modeller; Ollama og API-udbydere kan vælges i samme dialog. /help i chatten giver kontekstbaseret fejlsøgning.',
+    '- Genveje: Ctrl+T ny fane · Ctrl+J AI-panel · Ctrl+H historik · Ctrl+, setup · Ctrl+Shift+C kopiér markering.',
+    '',
+    'Følg altid dette svarformat:',
+    'Bruger: Hvad er kommanden til at vise IP-adressen — og vil du udføre den for mig?',
+    'Svar:',
+    'Kommanden er:',
+    '```powershell',
+    'ipconfig /all',
+    '```',
+    'KØRER',
+    '',
+    'Regler:',
+    '- Svar på dansk, kort og direkte (højst 4 linjer før kodeblokken).',
+    '- Giv altid kommandoen i en ```powershell kodeblok med én kørlinje hvis muligt.',
+    '- Kun Windows PowerShell/CMD — aldrig bash eller Linux-kommandoer, medmindre brugeren beder om det.',
+    '- Hvis brugeren beder om at udføre kommanden (fx “…og vil du udføre den for mig?”), så afslut svaret med den sidste linje KØRER lige efter kodeblokken.',
+    '- Skriv aldrig KØRER i andre sammenhænge.',
+    '- Advar kort før ødelæggende kommandoer (Remove-Item -Recurse, Format, Stop-Process -Force osv.).',
+    '- Ved tvivl: giv kommanden og lad brugeren trykke Kør.',
+  ].join('\n');
+}
+
 module.exports = {
   chat,
   listModels,
   PROVIDERS,
   PROVIDER_GROUPS,
   providerInfo,
+  DEFAULT_PROVIDER,
   buildAgentSystemPrompt,
+  buildPowerShellSystemPrompt,
   agyAvailable,
   listAgyModels,
   runAgyAgent,

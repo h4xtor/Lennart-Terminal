@@ -78,6 +78,32 @@ class TerminalManager extends EventEmitter {
     this.sessions = new Map();
   }
 
+  /** Which shells can actually start on this machine (UI disables the rest). */
+  shellsStatus() {
+    const sys32 = (exe) => {
+      try {
+        return fs.existsSync(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', exe));
+      } catch { return false; }
+    };
+    // Windows PowerShell lives in System32\WindowsPowerShell\v1.0 — NOT
+    // directly in System32, so a plain sys32('powershell.exe') always fails
+    // and would grey out the shell that actually works.
+    const winPowerShell = (() => {
+      try {
+        return fs.existsSync(path.join(
+          process.env.SystemRoot || 'C:\\Windows',
+          'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe',
+        ));
+      } catch { return false; }
+    })();
+    return {
+      powershell: winPowerShell || sys32('powershell.exe'),
+      pwsh: fs.existsSync('C:\\Program Files\\PowerShell\\7\\pwsh.exe'),
+      cmd: sys32('cmd.exe'),
+      gitbash: Boolean(findGitBash()),
+    };
+  }
+
   create({ shell, cwd } = {}) {
     const profile = shellProfile(shell || detectDefaultShell());
     let file = profile.file;

@@ -8,6 +8,9 @@ tools/
 dist/
 out/
 
+# Portable user data (USB stick): settings, history, local AI assets
+Data/
+
 # Logs
 *.log
 logs/

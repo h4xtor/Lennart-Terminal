@@ -73,6 +73,19 @@ if (Test-Path $locales) {
 $chromLic = Join-Path $Stage "node_modules\electron\dist\LICENSES.chromium.html"
 if (Test-Path $chromLic) { Remove-Item $chromLic -Force }
 
+# --- bundle the embedded AI (engine + model) if already downloaded ----
+# Makes the release zip offline-ready: no 1 GB first-run download.
+$localAiSrc = Join-Path $env:APPDATA "Lennart Terminal\localai"
+if (Test-Path $localAiSrc) {
+  $dataDir = Join-Path $Stage "Data"
+  New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+  Write-Host "Bundling local AI assets into Data/localai ..."
+  Copy-IfExists $localAiSrc (Join-Path $dataDir "localai")
+} else {
+  New-Item -ItemType Directory -Force -Path (Join-Path $Stage "Data") | Out-Null
+  Write-Host "Local AI assets not found - zip will download them on first run"
+}
+
 # --- zip ------------------------------------------------------
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 Compress-Archive -Path (Join-Path $StageRoot "LennartTerminal") -DestinationPath $Zip -CompressionLevel Optimal

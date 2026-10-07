@@ -15,6 +15,7 @@
       <span class="logo-dot"></span> Lennart Terminal
     </div>
     <div class="titlebar-actions">
+      <button id="btn-history" class="tb-btn" title="Historik (Ctrl+H)">&#128218;</button>
       <button id="btn-settings" class="tb-btn" title="Settings (Ctrl+,)">&#9881;</button>
       <button id="btn-devtools" class="tb-btn" title="Toggle Developer Tools">&#128366;</button>
       <button id="btn-minimize" class="tb-btn" title="Minimize">&#8211;</button>
@@ -22,6 +23,8 @@
       <button id="btn-close" class="tb-btn tb-close" title="Close">&#10005;</button>
     </div>
   </div>
+
+  <nav id="menubar" aria-label="Kommando-menuer"></nav>
 
   <div id="app">
     <!-- ============ Left sidebar ============ -->
@@ -35,10 +38,32 @@
 
       <div class="side-section">
         <div class="side-label">Shells</div>
-        <button class="side-btn shell-btn" data-shell="powershell">PowerShell</button>
-        <button class="side-btn shell-btn" data-shell="pwsh">PowerShell 7</button>
-        <button class="side-btn shell-btn" data-shell="cmd">Command Prompt</button>
-        <button class="side-btn shell-btn" data-shell="gitbash">Git Bash</button>
+        <div class="btn-grid-2">
+          <button class="side-btn shell-btn" data-shell="powershell">PowerShell</button>
+          <button class="side-btn shell-btn" data-shell="pwsh">PowerShell 7</button>
+          <button class="side-btn shell-btn" data-shell="cmd">Command Prompt</button>
+          <button class="side-btn shell-btn" data-shell="gitbash">Git Bash</button>
+        </div>
+      </div>
+
+      <div class="side-section">
+        <div class="side-label">Netværks-kommandoer <span class="side-count">20</span></div>
+        <div id="quick-grid" class="quick-grid"></div>
+      </div>
+
+      <div class="side-section">
+        <div class="side-label">Netværk
+          <span class="info-dot" tabindex="0"
+                title="Fjernsupport p&#229; LAN&#10;• Krav: begge PC'er p&#229; samme netv&#230;rk&#10;• SSH: sl&#229; til p&#229; m&#229;l-PC'en (Setup → “Sl&#229; SSH til” som admin) — eller WinRM: Enable-PSRemoting -Force&#10;• Tilf&#248;j v&#230;rt med brugernavn/adgangskode — eller skriv blot en IP her og tryk Forbind&#10;• Kommandoer i fjern-fanen k&#248;res p&#229; fjernv&#230;rten">i</span>
+        </div>
+        <div class="quick-connect">
+          <input id="quick-host-ip" type="text" spellcheck="false" placeholder="IP, fx 192.168.1.50" />
+          <button id="btn-quick-connect" title="Forbind til en PC p&#229; LAN'et og k&#248;r kommandoer p&#229; den">Forbind</button>
+        </div>
+        <div id="host-list" class="host-list"></div>
+        <button id="btn-add-host" class="side-btn" title="Tilføj en PC på netværket">
+          <span class="ico">&#65291;</span> Tilføj vært…
+        </button>
       </div>
 
       <div class="side-section">
@@ -53,7 +78,9 @@
 
       <div class="side-footer">
         <div class="status-row"><span class="status-dot" id="ai-status-dot"></span><span id="ai-status-text">AI: checking…</span></div>
-        <div class="status-row" id="version-row">v0.1.0</div>
+        <div class="status-row elev-row hidden" id="elev-row"
+             title="Tryk for at genstart Lennart Terminal som administrator (UAC)">⚠ Kører uden administrator</div>
+        <div class="status-row brand-row" id="brand-row">Lennart Terminal</div>
       </div>
     </aside>
 
@@ -63,6 +90,7 @@
       <div id="tabstrip">
         <div id="tabs"></div>
         <button id="btn-new-tab-inline" title="New tab">+</button>
+        <button id="btn-copy-term" title="Kopiér markeret tekst i terminalen (eller Ctrl+Shift+C / højreklik)">&#10697; Kopiér</button>
       </div>
 
       <!-- Terminal + AI split -->
@@ -74,13 +102,13 @@
           <div id="prompt-box">
             <div class="prompt-row">
               <span class="prompt-icon">&#10095;</span>
-              <input id="prompt-input" type="text" spellcheck="false" autocomplete="off"
-                     placeholder="Ask AI, or type a command and press Enter…" />
+              <span class="prompt-field">
+                <span id="prompt-hint"><b>Ask AI (Ctrl+Enter)</b> or type a command…</span>
+                <input id="prompt-input" type="text" spellcheck="false" autocomplete="off"
+                       title="Enter = kør · Ctrl+Enter = spørg AI · Ctrl+Shift+C = kopiér markering · Ctrl+J = AI-panel · Ctrl+H = historik · Ctrl+, = setup"
+                       aria-label="Ask AI, eller skriv en kommando" placeholder="" />
+              </span>
               <span id="cwd-label" class="cwd-label" title="Working directory"></span>
-            </div>
-            <div class="prompt-hint">
-              <kbd>Enter</kbd> run &nbsp;·&nbsp; <kbd>Ctrl+Enter</kbd> ask AI &nbsp;·&nbsp;
-              <kbd>Ctrl+J</kbd> panel &nbsp;·&nbsp; <kbd>Ctrl+,</kbd> settings
             </div>
           </div>
         </section>
@@ -97,7 +125,7 @@
           <div id="ai-messages"></div>
           <div id="ai-suggestions"></div>
           <form id="ai-composer">
-            <textarea id="ai-input" rows="2" placeholder="Spørg AI-en om noget… (Enter = send, Shift+Enter = nyt linjeskift)"></textarea>
+            <textarea id="ai-input" rows="2" placeholder="Spørg AI-en … (Enter = send · skriv /help for hjælp og fejlsøgning)"></textarea>
             <div class="ai-composer-row">
               <button type="button" id="btn-send-terminal" title="Send last terminal output as context">Attach last output</button>
               <span class="spacer"></span>
@@ -110,6 +138,28 @@
     </main>
   </div>
 
+  <!-- ============ History dialog ============ -->
+  <div id="history-overlay" class="hidden">
+    <div id="history-dialog" role="dialog" aria-modal="true">
+      <header>
+        <h2>Historik — alt der er sket</h2>
+        <button id="btn-close-history" class="tb-btn" title="Luk">&#10005;</button>
+      </header>
+      <div class="history-toolbar">
+        <input id="history-search" type="text" placeholder="Søg i kommandoer, output og AI-svar…" />
+        <select id="history-type">
+          <option value="">Alle</option>
+          <option value="local">Lokalt</option>
+          <option value="remote">Netværk</option>
+          <option value="agent">Agent</option>
+          <option value="ai">AI-samtaler</option>
+        </select>
+        <button id="btn-history-clear" class="danger">Ryd historik</button>
+      </div>
+      <div id="history-list"></div>
+    </div>
+  </div>
+
   <!-- ============ Settings dialog ============ -->
   <div id="settings-overlay" class="hidden">
     <div id="settings-dialog" role="dialog" aria-modal="true">
@@ -119,8 +169,17 @@
       </header>
 
       <div class="settings-body">
-        <section>
-          <h3>AI Provider</h3>
+        <nav class="set-nav" id="set-nav">
+          <button type="button" data-sec="sec-ai" class="active">AI &amp; modeller</button>
+          <button type="button" data-sec="sec-agent">Agent</button>
+          <button type="button" data-sec="sec-net">Netværk</button>
+          <button type="button" data-sec="sec-term">Terminal</button>
+          <button type="button" data-sec="sec-colors">Farver</button>
+          <button type="button" data-sec="sec-about">Om</button>
+        </nav>
+
+        <section id="sec-ai">
+          <h3>AI &amp; modeller</h3>
 
           <label class="field">
             <span>Provider</span>
@@ -146,10 +205,58 @@
           <label class="field">
             <span>Model</span>
             <div class="row">
-              <select id="set-model"><option value="">— refresh to load models —</option></select>
-              <button id="btn-refresh-models" type="button" title="Reload model list from server">&#8635;</button>
+              <select id="set-model"><option value="">— tryk Hent modeller —</option></select>
+              <button id="btn-refresh-models" type="button" title="Hent listen over tilgængelige modeller">Hent modeller</button>
+              <button id="btn-fetch-model" type="button" title="Hent den valgte model ned (gemmes på USB-stikket)" hidden>Hent valgt</button>
             </div>
+            <small id="model-hint" class="small"></small>
           </label>
+
+          <div id="model-panel" class="model-panel hidden">
+            <div class="mp-head"><b>Modeller</b><span class="small">✓ = på disken · ▼ hentes med ét klik</span></div>
+            <div id="model-panel-list" class="mp-list"></div>
+            <div id="model-progress" class="mp-progress hidden">
+              <div class="mp-fill"></div>
+              <span class="mp-note small"></span>
+            </div>
+          </div>
+
+          <div class="sub-head">Model-indstillinger <span class="small">(gælder den indbyggede AI)</span></div>
+          <div class="grid2">
+            <label class="field">
+              <span>Kontekst (tokens)</span>
+              <select id="set-ctx">
+                <option value="2048">2048 — hurtig / svag PC</option>
+                <option value="4096" selected>4096 — standard</option>
+                <option value="8192">8192 — lange svar</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Tråde (CPU)</span>
+              <select id="set-threads">
+                <option value="0" selected>Auto</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="4">4</option>
+                <option value="6">6</option>
+                <option value="8">8</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Maks svar (tokens)</span>
+              <select id="set-maxtokens">
+                <option value="0" selected>Auto — udbyderens standard</option>
+                <option value="256">256 — kort</option>
+                <option value="512">512 — standard</option>
+                <option value="1024">1024 — lang</option>
+                <option value="2048">2048 — meget lang</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Top-p <b id="set-topp-label">1.00</b></span>
+              <input id="set-topp" type="range" min="0.5" max="1" step="0.05" value="1" />
+            </label>
+          </div>
 
           <label class="field">
             <span>Temperature <b id="set-temp-label">0.4</b></span>
@@ -159,6 +266,7 @@
           <div class="field-check">
             <label><input type="checkbox" id="set-agent-mode" /> Agent mode (system prompt with terminal rules)</label>
             <label><input type="checkbox" id="set-confirm" /> Confirm before running destructive AI commands</label>
+            <label><input type="checkbox" id="set-autorun" /> AI må udføre kommandoer automatisk, når du beder om det</label>
           </div>
 
           <div class="conn-row">
@@ -167,7 +275,7 @@
           </div>
         </section>
 
-        <section>
+        <section id="sec-agent">
           <h3>Agent</h3>
           <label class="field">
             <span>Agent-motor</span>
@@ -188,7 +296,19 @@
           </label>
         </section>
 
-        <section>
+        <section id="sec-net">
+          <h3>Netværk &amp; fjernstyring
+            <span class="info-dot" tabindex="0"
+                  title="Krav for at forbinde til en anden PC p&#229; LAN'et:&#10;• begge PC'er p&#229; samme netv&#230;rk&#10;• SSH sl&#229;et til p&#229; m&#229;l-PC'en (kør “Sl&#229; SSH til” som admin — se menuen Setup) eller WinRM (Enable-PSRemoting -Force)&#10;• brugernavn/adgangskode p&#229; m&#229;l-PC'en&#10;V&#230;rter gemmes her og &#229;bnes som en fjern-fane, hvor alle kommandoer k&#248;res p&#229; fjernv&#230;rten.">i</span>
+          </h3>
+          <p class="small">Hold musen over <b>i</b> for kravene — værter gemmes her og åbnes som en fjern-fane.</p>
+          <div class="conn-row">
+            <button id="btn-show-ssh-setup" type="button">SSH setup-kommando</button>
+            <span id="ssh-setup-note" class="small"></span>
+          </div>
+        </section>
+
+        <section id="sec-term">
           <h3>Terminal</h3>
           <label class="field">
             <span>Default shell</span>
@@ -205,11 +325,37 @@
           </label>
         </section>
 
-        <section class="settings-meta">
-          <h3>About</h3>
+        <section id="sec-colors">
+          <h3>Farver &amp; udseende</h3>
+          <div class="grid2">
+            <label class="field">
+              <span>Tema</span>
+              <select id="set-theme">
+                <option value="standard">Standard (mørk)</option>
+                <option value="black">Dyb sort</option>
+                <option value="ocean">Ocean (blå)</option>
+                <option value="terminal">Terminal (grøn)</option>
+                <option value="lys">Lys</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Accentfarve</span>
+              <div class="row">
+                <input id="set-accent" type="color" value="#7c6cff" title="Farve på knapper, markering og cursor" />
+                <span class="small">knapper · markering · cursor</span>
+              </div>
+            </label>
+          </div>
+          <p class="small">Tema ændrer baggrund og tekst overalt (inkl. terminalen). Accentfarven bruges til knapper,
+          tekstmarkering og cursor — vælg frit og tryk Save.</p>
+        </section>
+
+        <section id="sec-about" class="settings-meta">
+          <h3>Om</h3>
           <div id="settings-paths" class="mono small"></div>
           <div class="row gap">
             <button id="btn-open-settings-file" type="button">Open settings.json</button>
+            <button id="btn-open-actions" type="button" title="github.com/h4xtor/Lennarts-Terminal/actions">GitHub Actions (CI)</button>
             <button id="btn-reset-settings" type="button" class="danger">Reset all settings</button>
           </div>
         </section>
@@ -223,13 +369,46 @@
     </div>
   </div>
 
+  <!-- ============ Host (add/edit) dialog ============ -->
+  <div id="host-overlay" class="hidden">
+    <div id="host-dialog" role="dialog" aria-modal="true">
+      <header>
+        <h2 id="host-dialog-title">Tilføj vært</h2>
+        <button id="btn-host-cancel" class="tb-btn" title="Annullér">&#10005;</button>
+      </header>
+      <div class="settings-body">
+        <label class="field"><span>Navn</span><input id="host-name" type="text" placeholder="fx Router-01 eller Gaming-PC 3" /></label>
+        <label class="field"><span>Vært (IP eller hostname)</span><input id="host-addr" type="text" placeholder="192.168.1.50" /></label>
+        <label class="field"><span>Metode</span>
+          <select id="host-method">
+            <option value="ssh">SSH (anbefalet)</option>
+            <option value="winrm">WinRM / PowerShell Remoting</option>
+          </select>
+        </label>
+        <label class="field"><span>Brugernavn</span><input id="host-user" type="text" placeholder="Administrator" /></label>
+        <label class="field"><span>Adgangskode <small>(WinRM)</small></span><input id="host-pass" type="password" /></label>
+        <label class="field"><span>Nøglefil <small>(SSH, valgfri)</small></span><input id="host-key" type="text" placeholder="C:\Users\…\.ssh\id_rsa" /></label>
+        <div class="conn-row">
+          <button id="btn-host-test" type="button">Test forbindelse</button>
+          <span id="host-test-result"></span>
+        </div>
+      </div>
+      <footer>
+        <span class="spacer"></span>
+        <button id="btn-host-save" class="primary">Gem vært</button>
+      </footer>
+    </div>
+  </div>
+
   <script src="../../node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="../../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
   <script src="../../node_modules/@xterm/addon-web-links/lib/addon-web-links.js"></script>
   <script src="../../node_modules/@xterm/addon-search/lib/addon-search.js"></script>
   <script src="js/terminal.js"></script>
   <script src="js/ai.js"></script>
+  <script src="js/history.js"></script>
   <script src="js/settings.js"></script>
+  <script src="js/commands.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

@@ -12,6 +12,7 @@ try {
 contextBridge.exposeInMainWorld('lennart', {
   // terminal
   createTerminal: (opts) => ipcRenderer.invoke('terminal:create', opts),
+  shellStatus: () => ipcRenderer.invoke('terminal:shells'),
   writeTerminal: (id, data) => ipcRenderer.send('terminal:write', { id, data }),
   resizeTerminal: (id, cols, rows) => ipcRenderer.send('terminal:resize', { id, cols, rows }),
   destroyTerminal: (id) => ipcRenderer.send('terminal:destroy', { id }),
@@ -40,9 +41,32 @@ contextBridge.exposeInMainWorld('lennart', {
   agyAvailable: () => ipcRenderer.invoke('ai:agyAvailable'),
   agyModels: () => ipcRenderer.invoke('ai:agyModels'),
 
+  // embedded local AI (offline PowerShell assistant)
+  localaiStatus: () => ipcRenderer.invoke('localai:status'),
+  localaiEnsure: () => ipcRenderer.invoke('localai:ensure'),
+  localaiListModels: () => ipcRenderer.invoke('localai:listModels'),
+  localaiDownloadModel: (spec) => ipcRenderer.invoke('localai:downloadModel', spec),
+  onLocalaiProgress: (cb) => ipcRenderer.on('localai:progress', (_e, payload) => cb(payload)),
+
+  // network hosts + remote execution
+  hostsList: () => ipcRenderer.invoke('hosts:list'),
+  hostsSave: (host) => ipcRenderer.invoke('hosts:save', host),
+  hostsDelete: (id) => ipcRenderer.invoke('hosts:delete', id),
+  hostsSshSetupCommand: () => ipcRenderer.invoke('hosts:sshSetupCommand'),
+  remoteTest: (host) => ipcRenderer.invoke('remote:test', host),
+  remoteRun: (payload) => ipcRenderer.invoke('remote:run', payload),
+  onRemoteData: (cb) => ipcRenderer.on('remote:data', (_e, payload) => cb(payload)),
+
+  // permanent history
+  historyQuery: (opts) => ipcRenderer.invoke('history:query', opts),
+  historyClear: () => ipcRenderer.invoke('history:clear'),
+
   // misc
   getPaths: () => ipcRenderer.invoke('app:getPaths'),
   revealSettingsFile: () => ipcRenderer.invoke('app:revealSettingFile'),
+  openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
+  elevation: () => ipcRenderer.invoke('app:elevation'),
+  relaunchAdmin: () => ipcRenderer.invoke('app:relaunchAdmin'),
   openDevTools: () => ipcRenderer.send('app:devtools'),
   confirmCommand: (command) => ipcRenderer.invoke('terminal:confirmCommand', { command }),
   log: (msg) => ipcRenderer.send('app:log', msg),
