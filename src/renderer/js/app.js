@@ -228,7 +228,7 @@ function initMenubar() {
   const tag = document.createElement('span');
   tag.id = 'version-tag';
   tag.title = 'Lennart Terminal — CI: github.com/h4xtor/Lennarts-Terminal/actions';
-  tag.textContent = 'v0.2.0';
+  tag.textContent = 'v0.4.0';
   bar.appendChild(tag);
   window.lennart.getPaths()
     .then((p) => { if (p && p.version) tag.textContent = `v${p.version}`; })

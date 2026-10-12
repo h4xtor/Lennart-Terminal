@@ -133,7 +133,7 @@ npm run check   :: fast node --check syntax gate over all JS
 npm test        :: offline AI-layer tests (no provider needed)
 ```
 
-Releases are automated: push a tag (`git tag v0.2.0 && git push origin v0.2.0`) and GitHub Actions builds the portable zip and publishes the release. The workflow runs are public: [github.com/h4xtor/Lennarts-Terminal/actions](https://github.com/h4xtor/Lennarts-Terminal/actions).
+Releases are automated: push a tag (`git tag v0.4.0 && git push origin v0.4.0`) and GitHub Actions builds the portable zip and publishes the release. The workflow runs are public: [github.com/h4xtor/Lennart-Terminal/actions](https://github.com/h4xtor/Lennart-Terminal/actions).
 
 ## Project layout
 
