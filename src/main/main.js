@@ -121,6 +121,10 @@ async function resolveLocalProvider(cfg) {
   return {
     ...cfg,
     provider: 'openai-compatible',
+    // Keep the embedded origin marked: chat() uses this to still apply the
+    // answer cap and the llama.cpp anti-repetition penalties after the
+    // provider rewrite above (otherwise a looping answer runs uncapped).
+    embeddedLocal: true,
     baseUrl: ensured.baseUrl,
     model: localAI.model.id,
     apiKey: 'local',

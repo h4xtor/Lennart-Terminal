@@ -12,6 +12,10 @@ const { chat, listModels, buildAgentSystemPrompt, buildPowerShellSystemPrompt } 
 
 const PORT = 18114;
 
+// Captured request bodies, asserted after each chat() call in main().
+let lastChatBody = null;
+let lastOllamaOptions = null;
+
 const server = http.createServer((req, res) => {
   res.setHeader('Connection', 'close'); // fresh connection per request (Windows keep-alive quirk)
   if (req.method === 'GET' && req.url === '/api/tags') {
@@ -51,6 +55,7 @@ const server = http.createServer((req, res) => {
       const parsed = JSON.parse(body);
       assert.ok(parsed.stream === true, 'ollama stream must be true');
       assert.ok(Array.isArray(parsed.messages), 'messages array expected');
+      lastOllamaOptions = parsed.options;
       res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
       const lines = [
         JSON.stringify({ message: { role: 'assistant', content: 'Run ' } }),
@@ -88,6 +93,7 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       const parsed = JSON.parse(body);
       assert.ok(parsed.stream === true, 'openai stream must be true');
+      lastChatBody = parsed;
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       res.write('data: {"choices":[{"delta":{"content":"hello"}}]}\n\n');
       res.write('data: {"choices":[{"delta":{"content":" world"}}]}\n\n');
@@ -153,6 +159,32 @@ function testPowerShellPromptTraining() {
   assert.ok(/FØRSTE/.test(p) || /første ```powershell/.test(p) || /FØRSTE ```powershell/.test(p),
     'prompt pins the runnable command to the FIRST powershell block');
 
+  // --- Part 5: answer style — the small model must answer directly and never
+  // run in circles (the old model repeated steps 2..9 about the same PC) ---
+  assert.ok(p.includes('DEL 5: SVARSTIL'), 'prompt teaches the answer-style section');
+  assert.ok(p.includes('ÉN gang'), 'prompt forbids repeating a step');
+  assert.ok(p.includes('gentag for næste PC'), 'prompt gives the repeat-instead-of-looping idiom');
+  assert.ok(/Stop når svaret er givet/.test(p), 'prompt tells the model to stop once answered');
+  assert.ok(/Direkte: Begynd med selve svaret/.test(p), 'prompt demands starting with the answer');
+  assert.ok(p.includes('HÅRD GRÆNSE'), 'prompt sets the hard 4-point limit');
+  assert.ok(p.includes('punkt 5'), 'prompt forbids a fifth point explicitly');
+  // The answer format is described IN WORDS. There must be no few-shot
+  // "Bruger:/Svar:" transcript left anywhere in the prompt: the model
+  // copied it verbatim — echoing the user's question, emitting a fake
+  // KØRER and regurgitating the Regler list as its "answer".
+  assert.ok(p.includes('Et svar har denne form'), 'prompt describes the answer form in words');
+  assert.ok(!p.includes('<den ENE kommando'), 'no placeholder example left to copy');
+  assert.strictEqual(p.indexOf('Bruger: Jeg skal RDP'), -1, 'the RDP dialog example is gone');
+  assert.strictEqual(p.indexOf('Bruger: Hvad er kommanden'), -1, 'the IP dialog example is gone');
+  assert.ok(p.includes('NETOP det, brugeren spurgte om'), 'prompt pins the answer to the actual question');
+  assert.ok(p.includes('gengiv brugerens spørgsmål'), 'prompt forbids echoing the question');
+  assert.ok(p.trim().endsWith('ellers aldrig.'), 'the prompt ends with a hard rule, not an example');
+  assert.ok(p.includes('Forklar som til en ven'), 'prompt demands plain, friendly wording');
+  assert.ok(p.includes('Ingen overskrifter'), 'prompt forbids ### headings (they restart the numbering)');
+  assert.ok(p.includes('Ingen underpunkter'), 'prompt forbids nested bullet levels');
+  assert.ok(p.includes('Ingen numre'), 'prompt forbids numbered lists (the loop generator)');
+  assert.ok(p.includes('“11.”'), 'prompt forbids continuing a previous numbering');
+
   // --- the agent prompt is unchanged in contract ---
   const agent = buildAgentSystemPrompt();
   assert.ok(agent.includes('Lennart'), 'agent prompt keeps its identity');
@@ -189,6 +221,64 @@ async function main() {
   });
   assert.strictEqual(ocText, 'hello world', `openai-compatible streaming failed: ${ocText}`);
   console.log('PASS openai-compatible listModels + streaming chat');
+
+  // --- Ollama anti-repetition options must reach the server ---
+  assert.ok(lastOllamaOptions, 'mock captured ollama options');
+  assert.strictEqual(lastOllamaOptions.repeat_penalty, 1.15, 'ollama gets repeat_penalty');
+  assert.ok(lastChatBody.repeat_penalty === undefined,
+    'unknown llama.cpp fields are NOT sent to a plain openai-compatible server');
+
+  // --- Embedded model: anti-loop sampling must reach the server ---
+  lastChatBody = null;
+  const localCfg = { provider: 'lennart-local', model: 'mock-coder', baseUrl: `http://127.0.0.1:${PORT}/v1` };
+  await chat(localCfg, [{ role: 'user', content: 'vis min IP' }], { onToken: () => {} });
+  assert.ok(lastChatBody, 'mock captured the embedded chat body');
+  assert.strictEqual(lastChatBody.repeat_penalty, 1.15, 'llama.cpp repeat_penalty is sent');
+  assert.strictEqual(lastChatBody.repeat_last_n, 256, 'llama.cpp repeat_last_n is sent');
+  assert.strictEqual(lastChatBody.max_tokens, 400, 'embedded answers are capped at 400 tokens');
+
+  // Overlong and loop-shaped answers must be dropped from history entirely:
+  // the model would otherwise continue its own numbering next turn
+  // (the real bug: a looped 1..10 answer produced "11. … 12. … 13. …").
+  lastChatBody = null;
+  await chat(localCfg, [
+    { role: 'assistant', content: 'x'.repeat(5000) },
+    { role: 'user', content: 'og igen?' },
+  ], { onToken: () => {} });
+  assert.ok(!lastChatBody.messages.some((m) => m.role === 'assistant'),
+    'overlong old answers are dropped from history');
+
+  lastChatBody = null;
+  await chat(localCfg, [
+    { role: 'user', content: 'første spørgsmål' },
+    { role: 'assistant', content: Array.from({ length: 10 }, (_, i) => `${i + 1}. Gør noget ${i + 1}`).join('\n') },
+    { role: 'user', content: 'og videre?' },
+  ], { onToken: () => {} });
+  assert.ok(!lastChatBody.messages.some((m) => m.role === 'assistant'),
+    'loop-shaped answers (6+ numbered steps) are dropped from history');
+
+  // After main.js resolveLocalProvider() rewrites the provider to
+  // 'openai-compatible', the embeddedLocal flag must keep cap + penalties
+  // alive (the real bug: they silently vanished after the rewrite).
+  lastChatBody = null;
+  await chat({ ...localCfg, provider: 'openai-compatible', embeddedLocal: true }, [
+    { role: 'user', content: 'vis IP' },
+  ], { onToken: () => {} });
+  assert.strictEqual(lastChatBody.max_tokens, 400,
+    'embeddedLocal keeps the answer cap after the provider rewrite');
+  assert.strictEqual(lastChatBody.repeat_penalty, 1.15,
+    'embeddedLocal keeps repeat_penalty after the provider rewrite');
+
+  // A normal short answer must survive
+  lastChatBody = null;
+  await chat(localCfg, [
+    { role: 'user', content: 'vis IP' },
+    { role: 'assistant', content: 'Kommanden er `ipconfig /all`.' },
+    { role: 'user', content: 'tak' },
+  ], { onToken: () => {} });
+  assert.strictEqual(lastChatBody.messages.filter((m) => m.role === 'assistant').length, 1,
+    'a short clean answer stays in history');
+  console.log('PASS embedded anti-loop sampling (repeat_penalty, answer cap, history filtering)');
 
   if (server.closeAllConnections) server.closeAllConnections();
   // --- Anthropic protocol ---

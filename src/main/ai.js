@@ -275,6 +275,11 @@ async function listModels(cfg, { timeout = 6000 } = {}) {
 // Streaming chat
 // ---------------------------------------------------------------------------
 
+// Endpoints that speak llama.cpp sampler fields (repeat_penalty / repeat_last_n).
+// Cloud and unknown OpenAI-compatible servers get none — an unknown field can
+// make strict APIs reject the whole request.
+const LOCAL_LLAMA_PROVIDERS = new Set(['lennart-local', 'llamacpp', 'lmstudio']);
+
 /**
  * cfg: { provider, model, baseUrl, apiKey, temperature }
  * messages: [{ role, content }]
@@ -293,22 +298,54 @@ async function chat(cfg, messages, { system, onToken, signal } = {}) {
     throw new Error('AI-udbyder er ikke konfigureret — åbn Settings og vælg "Indbygget (offline)" eller udfyld en base URL');
   }
 
-  const temperature = Number.isFinite(cfg.temperature) ? cfg.temperature : 0.4;
+  // resolveLocalProvider() (main.js) rewrites the embedded provider to
+  // 'openai-compatible' before chat() runs — cfg.embeddedLocal keeps it
+  // marked, so the anti-loop caps and sampler penalties below still reach
+  // the local llama-server instead of silently vanishing.
+  const embedded = provider === 'lennart-local' || cfg.embeddedLocal === true;
+
+  // The embedded 1.5B/3B coder model rambles at the generic default — answer
+  // slightly cooler and much shorter, unless the user set their own values.
+  const fallbackTemp = embedded ? 0.3 : 0.4;
+  const temperature = Number.isFinite(cfg.temperature) ? cfg.temperature : fallbackTemp;
   // Model settings (Settings → Model-indstillinger). maxTokens 0 = provider
   // default, topP 1 = standard sampling.
-  const maxTokens = Number(cfg.maxTokens) > 0 ? Number(cfg.maxTokens) : 0;
+  let maxTokens = Number(cfg.maxTokens) > 0 ? Number(cfg.maxTokens) : 0;
   const topP = Number(cfg.topP) > 0 ? Number(cfg.topP) : 1;
 
+  // The embedded model gets a hard answer cap: a 400-token answer is already
+  // a long one — without a cap a looping reply runs until the context fills
+  // (Settings can still override it).
+  if (embedded && !maxTokens) maxTokens = 400;
+
+  // An answer that looped once must not teach the model to loop again.
+  // Two defenses: (1) an old assistant turn that looks like a list-loop is
+  // dropped entirely — the model would otherwise continue its own numbering
+  // ("11. … 12. … 13. …" right after a looped 1..10 answer); (2) whatever
+  // survives is capped so a long answer can't dominate the context.
+  const looksLikeLoop = (content) => {
+    const lines = content.split('\n').map((l) => l.trim());
+    const numbered = lines.filter((l) => /^\d{1,2}\.\s/.test(l)).length;
+    if (numbered >= 6) return true;
+    const long = lines.filter((l) => l.length > 15);
+    const seen = new Set(long);
+    return seen.size < long.length; // repeated non-trivial lines
+  };
+  const safeMessages = messages.filter((m) => {
+    if (m.role !== 'assistant' || typeof m.content !== 'string') return true;
+    return !(m.content.length > 1500 || looksLikeLoop(m.content));
+  });
+
   if (protocol === 'ollama') {
-    return chatOllama({ baseUrl, model, messages, system, temperature, maxTokens, topP, onToken, signal });
+    return chatOllama({ baseUrl, model, messages: safeMessages, system, temperature, maxTokens, topP, onToken, signal });
   }
   if (protocol === 'anthropic') {
-    return chatAnthropic({ baseUrl, model, messages, system, temperature, maxTokens, topP, apiKey, onToken, signal });
+    return chatAnthropic({ baseUrl, model, messages: safeMessages, system, temperature, maxTokens, topP, apiKey, onToken, signal });
   }
   if (protocol === 'agy') {
-    return chatAgy({ messages, system, onToken, signal, model, allowTools: false });
+    return chatAgy({ messages: safeMessages, system, onToken, signal, model, allowTools: false });
   }
-  return chatOpenAICompatible({ baseUrl, model, messages, system, temperature, maxTokens, topP, apiKey, onToken, signal });
+  return chatOpenAICompatible({ provider, embedded, baseUrl, model, messages: safeMessages, system, temperature, maxTokens, topP, apiKey, onToken, signal });
 }
 
 async function chatOllama({ baseUrl, model, messages, system, temperature, maxTokens, topP, onToken, signal }) {
@@ -318,6 +355,11 @@ async function chatOllama({ baseUrl, model, messages, system, temperature, maxTo
     stream: true,
     options: {
       temperature,
+      // anti-repetition: without a penalty small models repeat steps forever.
+      // Kept moderate — an aggressive penalty over the end of a long system
+      // prompt makes the model rewrite the instructions instead of answering.
+      repeat_penalty: 1.15,
+      repeat_last_n: 256,
       ...(maxTokens > 0 ? { num_predict: maxTokens } : {}),
       ...(topP < 1 ? { top_p: topP } : {}),
     },
@@ -335,7 +377,7 @@ async function chatOllama({ baseUrl, model, messages, system, temperature, maxTo
   });
 }
 
-async function chatOpenAICompatible({ baseUrl, model, messages, system, temperature, maxTokens, topP, apiKey, onToken, signal }) {
+async function chatOpenAICompatible({ provider, embedded, baseUrl, model, messages, system, temperature, maxTokens, topP, apiKey, onToken, signal }) {
   const headers = { 'Content-Type': 'application/json' };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
   headers['HTTP-Referer'] = 'https://lennart-terminal.local';
@@ -347,6 +389,11 @@ async function chatOpenAICompatible({ baseUrl, model, messages, system, temperat
     temperature,
     ...(maxTokens > 0 ? { max_tokens: maxTokens } : {}),
     ...(topP < 1 ? { top_p: topP } : {}),
+    // Anti-repetition for llama.cpp-family endpoints: without a real penalty
+    // the embedded model repeats the same numbered step ("23. Net use …
+    // 29. Net use") until the context fills up. 1.30 is the point where a
+    // 1.5B coder model actually stops instead of merely slowing down.
+    ...(embedded || LOCAL_LLAMA_PROVIDERS.has(provider) ? { repeat_penalty: 1.15, repeat_last_n: 256 } : {}),
     messages: system ? [{ role: 'system', content: system }, ...messages] : messages,
   };
   const res = await fetch(`${baseUrl}/chat/completions`, {
@@ -658,13 +705,8 @@ function buildPowerShellSystemPrompt() {
     '1. Læs fejlen/brugeren præcist — gæt aldrig. 2. Indsnævr: lokalt eller fjern-fane? netværk, disk, service eller program? 3. Bevis med ÉN kommando ad gangen, læs-only først. 4. Fortolk output og peg på årsagen. 5. Giv fixet plus en verifikations-kommando bagefter. Ved tvivl: spørg i stedet for at gætte.',
     '',
     '=== DEL 4: SVARFORMAT (følg det altid) ===',
-    'Bruger: Hvad er kommanden til at vise IP-adressen — og vil du udføre den for mig?',
-    'Svar:',
-    'Kommanden er:',
-    '```powershell',
-    'ipconfig /all',
-    '```',
-    'KØRER',
+    'Et svar har denne form: 1-2 korte sætninger, så ÉN ```powershell-kodeblok med kommandoen, så én kort afsluttende sætning.',
+    'Er svaret givet efter kodeblokken, er du færdig — skriv ikke mere.',
     '',
     'Regler:',
     '- Svar på dansk, kort og direkte (højst 4 linjer før kodeblokken).',
@@ -675,6 +717,25 @@ function buildPowerShellSystemPrompt() {
     '- Skriv aldrig KØRER i andre sammenhænge.',
     '- Advar kort før ødelæggende kommandoer (Remove-Item -Recurse, Format, Stop-Process -Force osv.).',
     '- Ved tvivl: giv kommanden og lad brugeren trykke Kør.',
+    '- Gentag aldrig et trin, punkt eller kommando — hvert punkt står præcis ÉN gang (se Del 5).',
+    '',
+    '=== DEL 5: SVARSTIL — vær direkte, kør aldrig i ringe ===',
+    'Regler (disse linjer er det SIDSTE du læser — følg dem, gentag dem aldrig i et svar):',
+    'Direkte: Begynd med selve svaret — ingen “Selvfølgelig!”, ingen gentagelse af spørgsmålet, ingen lang indledning.',
+    'Aldrig gentaget: Skriv et trin én gang og gå videre. Når opgaven gentages for en anden PC eller adresse, så skriv “gentag for næste PC” i stedet for at gentage trinene.',
+    'HÅRD GRÆNSE: højst 4 punkter. Har du skrevet punkt 4, er svaret færdigt — lav aldrig et punkt 5, gentag aldrig et punkt.',
+    'Ingen overskrifter: skriv ALDRIG “### …” eller “## …” — det får dig til at starte forfra og gentage dig selv. Bare almindelige korte afsnit.',
+    'Ingen numre: brug ALDRIG nummererede lister (1. 2. 3.) — tal aldrig højt i et svar. Numre får dig til at tælle uendeligt videre næste gang; skriv i korte afsnit i stedet.',
+    'Hvis et tidligere svar i samtalen har punkter, så TÆL IKKE videre — begynd aldrig på “11.” eller lignende. Start rent, maks 4 afsnit.',
+    'Ingen underpunkter: ét lag punkter maks (ingen a/b/c under 1./2.).',
+    'Svarets form: 1-3 sætninger, så ét ```powershell-kodeblok, så én afsluttende sætning. Det er hele svaret.',
+    'Svar kun på NETOP det, brugeren spurgte om — tag aldrig en kommando fra et andet emne.',
+    'Forklar som til en ven: korte linjer, ét kommandoblok ad gangen, ingen opremsning af alt du ved om emnet.',
+    'Stop når svaret er givet: skriv ikke ekstra punkter for at fylde. Kort og færdig er bedre end langt og gentagende.',
+    'Ved tvivl: giv dit bedste bud én gang og sig ærligt, hvad du ikke ved — gentag aldrig for at være sikker.',
+    'Kan appen det, brugeren spørger om? Svar med navnet på menupunkt/genvej plus kommandoen, én gang, og vær færdig.',
+    'ALDRIG i et svar: gengiv brugerens spørgsmål, skriv “Bruger:”, “Svar:”, “Kommandonen er:” eller “Regler” — eller gentag noget fra denne prompt.',
+    'KØRER skrives kun i svarets sidste linje, når brugeren eksplicit har bedt om at få kommandoen udført — ellers aldrig.',
   ].join('\n');
 }
 
