@@ -8,7 +8,7 @@
 
 const http = require('http');
 const assert = require('assert');
-const { chat, listModels, buildAgentSystemPrompt } = require('../src/main/ai');
+const { chat, listModels, buildAgentSystemPrompt, buildPowerShellSystemPrompt } = require('../src/main/ai');
 
 const PORT = 18114;
 
@@ -100,7 +100,68 @@ const server = http.createServer((req, res) => {
   res.end('not found');
 });
 
+/**
+ * The embedded assistant's system prompt is its full training compendium:
+ * app knowledge + Windows troubleshooting + the answer-format contract the
+ * renderer depends on (FIRST ```powershell block + KØRER marker). Lock every
+ * part of it so the training cannot silently shrink back.
+ */
+function testPowerShellPromptTraining() {
+  const p = buildPowerShellSystemPrompt();
+
+  // It must be a real compendium, not the old 15-liner
+  assert.ok(p.length > 3000, `prompt is a full compendium (${p.length} chars)`);
+
+  // --- Part 1: the app itself (facts a fresh user must learn from the AI) ---
+  for (const fact of [
+    'LENNART TERMINAL',     // app section header
+    'Ctrl+T',               // shortcuts
+    'Ctrl+J',
+    'Fjernsupport',         // menubar menu
+    'Tilføj vært',          // host management
+    'Hent modeller',        // model manager
+    '127.0.0.1:9601',       // embedded llama-server
+    'Data/history.jsonl',   // permanent history
+    'Kør',                  // code-block Run button
+  ]) {
+    assert.ok(p.includes(fact), `prompt teaches app fact "${fact}"`);
+  }
+
+  // --- Part 2: the Windows/PowerShell troubleshooting compendium ---
+  for (const cmd of [
+    'Get-NetTCPConnection', // who listens on a port
+    'ipconfig /all',
+    'Get-Service',
+    'Get-Volume',           // disk health
+    'Get-WinEvent',         // event logs
+    'sfc /scannow',         // system repair
+    'nvidia-smi',           // GPU
+    'Enable-PSRemoting',    // remote support
+    'winget',               // package manager
+    'Stop-Process',
+  ]) {
+    assert.ok(p.includes(cmd), `prompt compendium covers "${cmd}"`);
+  }
+
+  // --- Part 3: the diagnostic method ---
+  assert.ok(/SÅDAN DIAGNOSTICERER DU/.test(p), 'prompt teaches the diagnostic method');
+
+  // --- Part 4: the answer-format contract (renderer auto-run depends on it) ---
+  assert.ok(p.includes('KØRER'), 'prompt keeps the KØRER auto-run marker');
+  assert.ok(p.includes('```powershell'), 'prompt keeps the fenced powershell block format');
+  assert.ok(/Svar på dansk/.test(p), 'prompt demands Danish answers');
+  assert.ok(/FØRSTE/.test(p) || /første ```powershell/.test(p) || /FØRSTE ```powershell/.test(p),
+    'prompt pins the runnable command to the FIRST powershell block');
+
+  // --- the agent prompt is unchanged in contract ---
+  const agent = buildAgentSystemPrompt();
+  assert.ok(agent.includes('Lennart'), 'agent prompt keeps its identity');
+
+  console.log(`PASS PowerShell prompt training (${p.length} chars, app + troubleshooting + format)`);
+}
+
 async function main() {
+  testPowerShellPromptTraining();
   await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
 
   // --- Ollama provider ---

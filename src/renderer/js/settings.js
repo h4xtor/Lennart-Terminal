@@ -38,7 +38,7 @@ async function loadSettingsUi() {
 
   // Model settings (ctx / threads / max tokens / top-p / auto-run) + colours
   const lai = currentSettings.localAI || {};
-  document.getElementById('set-ctx').value = String(lai.ctx || 4096);
+  document.getElementById('set-ctx').value = String(lai.ctx || 8192);
   document.getElementById('set-threads').value = String(lai.threads || 0);
   document.getElementById('set-maxtokens').value = String(currentSettings.ai.maxTokens ?? 0);
   document.getElementById('set-topp').value = currentSettings.ai.topP ?? 1;
@@ -401,7 +401,7 @@ async function fetchSelectedLocalModel() {
       },
     },
     localAI: {
-      ctx: parseInt(document.getElementById('set-ctx').value, 10) || 4096,
+      ctx: parseInt(document.getElementById('set-ctx').value, 10) || 8192,
       threads: parseInt(document.getElementById('set-threads').value, 10) || 0,
     },
     theme: {
