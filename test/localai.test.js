@@ -37,7 +37,9 @@ async function testBinName() {
 async function testPathsAndStatus(tmpRoot) {
   const ai = new LocalAI({ root: path.join(tmpRoot, 'localai'), log: () => {}, emit: () => {} });
   const p = ai.paths();
-  assert.ok(p.bin.endsWith(binName('win32')));
+  // paths() composes the binary name for the RUNNING platform — CI runs
+  // ubuntu too, where the binary is "llama-server" without .exe.
+  assert.ok(p.bin.endsWith(binName(process.platform)));
   assert.ok(p.model.endsWith(LOCAL_MODEL.file));
   const st = ai.status();
   assert.strictEqual(st.running, false);
