@@ -1,8 +1,15 @@
 name: Release
 
+# A release is made automatically whenever the version in package.json
+# changes on main (no tags to push by hand). Pushing a v* tag or pressing
+# "Run workflow" in the Actions tab works too. An existing release for the
+# same version is never overwritten.
 on:
   push:
+    branches: [main]
+    paths: ['package.json', '.github/workflows/release.yml']
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -13,23 +20,42 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Decide version
+        id: ver
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = 'v' + (Get-Content package.json -Raw | ConvertFrom-Json).version
+          gh release view $v --repo $env:GITHUB_REPOSITORY *> $null
+          $exists = $LASTEXITCODE -eq 0
+          "tag=$v" >> $env:GITHUB_OUTPUT
+          "skip=$($exists.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          if ($exists) { Write-Host "Release $v already exists - nothing to do" } else { Write-Host "Building release $v" }
+          exit 0
+
       - uses: actions/setup-node@v4
+        if: steps.ver.outputs.skip != 'true'
         with:
           node-version: 22
           cache: npm
 
       - name: Install dependencies
+        if: steps.ver.outputs.skip != 'true'
         run: npm ci
 
       - name: Syntax check + tests
+        if: steps.ver.outputs.skip != 'true'
         run: |
           npm run check
           npm test
 
       - name: Build Windows EXE (portable .exe + zip)
+        if: steps.ver.outputs.skip != 'true'
         run: npx electron-builder --win --x64 --publish never
 
       - name: Create GitHub release
+        if: steps.ver.outputs.skip != 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -37,7 +63,7 @@ jobs:
           $files = Get-ChildItem dist -File | Where-Object { $_.Name -match '\.(exe|zip)$' } | ForEach-Object { $_.FullName }
           if (-not $files) { throw 'electron-builder produced no .exe/.zip' }
           $notes = @"
-          **Lennart Terminal $env:GITHUB_REF_NAME**
+          **Lennart Terminal ${{ steps.ver.outputs.tag }}**
 
           **Download one of these (Windows 10/11, 64-bit — nothing to install):**
           - ``LennartTerminal-*-portable.exe`` — one single file. Double-click it. A ``Data`` folder (settings, history, offline AI) is created next to it, so it works from a USB stick.
@@ -46,4 +72,4 @@ jobs:
           AI providers are configured in the app under Settings (Ctrl+,). See the [README](https://github.com/$env:GITHUB_REPOSITORY#readme).
           "@
           Set-Content -Path release-notes.md -Value $notes -Encoding utf8
-          gh release create $env:GITHUB_REF_NAME @files --title "Lennart Terminal $env:GITHUB_REF_NAME" --notes-file release-notes.md
+          gh release create ${{ steps.ver.outputs.tag }} @files --target $env:GITHUB_SHA --title "Lennart Terminal ${{ steps.ver.outputs.tag }}" --notes-file release-notes.md

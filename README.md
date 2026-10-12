@@ -148,7 +148,7 @@ npm test        :: offline AI-layer tests (no provider needed)
 node scripts/eval-localai.js   :: answer-quality check against a running llama-server (127.0.0.1:9601)
 ```
 
-Releases are automated: push a tag (`git tag v0.4.1 && git push origin v0.4.1`) and GitHub Actions builds the portable EXE + zip and publishes the release. `npm run dist` builds the same EXE locally on Windows. The workflow runs are public: [github.com/h4xtor/Lennart-Terminal/actions](https://github.com/h4xtor/Lennart-Terminal/actions).
+Releases are automated: bump `version` in package.json and push to main — GitHub Actions builds the portable EXE + zip and publishes release `v<version>` (an existing release is never overwritten; "Run workflow" in the Actions tab also works). `npm run dist` builds the same EXE locally on Windows. The workflow runs are public: [github.com/h4xtor/Lennart-Terminal/actions](https://github.com/h4xtor/Lennart-Terminal/actions).
 
 ## Project layout
 
