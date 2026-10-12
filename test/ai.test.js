@@ -8,7 +8,9 @@
 
 const http = require('http');
 const assert = require('assert');
-const { chat, listModels, buildAgentSystemPrompt, buildPowerShellSystemPrompt } = require('../src/main/ai');
+const {
+  chat, listModels, buildAgentSystemPrompt, buildPowerShellSystemPrompt, PROVIDERS,
+} = require('../src/main/ai');
 
 const PORT = 18114;
 
@@ -192,8 +194,40 @@ function testPowerShellPromptTraining() {
   console.log(`PASS PowerShell prompt training (${p.length} chars, app + troubleshooting + format)`);
 }
 
+/**
+ * The settings provider dropdown is built from PROVIDERS — every cloud
+ * provider must carry a working OpenAI-compatible baseUrl, a key url the
+ * user can follow, and sit in the Cloud group so it shows up in Settings.
+ */
+function testProviderCatalog() {
+  const expected = {
+    deepseek: 'https://api.deepseek.com',
+    groq: 'https://api.groq.com/openai/v1',
+    mistral: 'https://api.mistral.ai/v1',
+    xai: 'https://api.x.ai/v1',
+    together: 'https://api.together.ai/v1',
+    perplexity: 'https://api.perplexity.ai/router/v1',
+  };
+  for (const [id, url] of Object.entries(expected)) {
+    const p = PROVIDERS[id];
+    assert.ok(p, `catalog includes ${id}`);
+    assert.strictEqual(p.baseUrl, url, `${id} baseUrl`);
+    assert.strictEqual(p.protocol, 'openai', `${id} uses the OpenAI protocol`);
+    assert.strictEqual(p.group, 'Cloud (API-nøgle)', `${id} shows in the Cloud group`);
+    assert.ok(p.needsKey, `${id} requires a key`);
+    assert.ok(p.keyUrl && p.keyUrl.startsWith('https://'), `${id} has a key url`);
+    assert.ok(p.label && p.label.length > 2, `${id} has a label`);
+  }
+  // The pre-existing cloud providers must stay too
+  for (const id of ['openrouter', 'openai', 'anthropic', 'gemini', 'dashscope', 'moonshot', 'omniroute']) {
+    assert.ok(PROVIDERS[id], `catalog still includes ${id}`);
+  }
+  console.log(`PASS provider catalog (${Object.keys(expected).length} new cloud providers + existing)`);
+}
+
 async function main() {
   testPowerShellPromptTraining();
+  testProviderCatalog();
   await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
 
   // --- Ollama provider ---
