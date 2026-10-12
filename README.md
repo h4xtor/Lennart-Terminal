@@ -21,11 +21,16 @@ A AI-inspired terminal for Windows with an integrated **AI agent** — chat with
 
 ## Quick start
 
-### Option A — portable zip (nothing to install)
+### Option A — EXE (nothing to install)
 
-Grab `LennartTerminal-portable-*.zip` from the [latest release](https://github.com/h4xtor/Lennart-Terminal/releases/latest), unzip it anywhere (USB stick works) and double-click `start-lennart-terminal.cmd`. No Node.js, no installer.
+Grab one of these from the [latest release](https://github.com/h4xtor/Lennart-Terminal/releases/latest):
 
-The built-in offline AI downloads its engine + model (~1 GB) on first use — or ships **inside the release zip** when bundled, fully offline from minute one.
+- **`LennartTerminal-<version>-portable.exe`** — one single file, just double-click it
+- **`LennartTerminal-<version>-win-x64.zip`** — unzip anywhere and double-click **`Lennart Terminal.exe`** (starts a little faster)
+
+Both are portable: a `Data` folder (settings, hosts, history, offline AI) is created next to the program, so it works straight from a USB stick. No Node.js, no installer.
+
+The built-in offline AI downloads its engine + model (~1 GB) on first use.
 
 ### Option B — run from source
 
@@ -40,15 +45,14 @@ npm start
 
 ## USB-stick mode (portable)
 
-1. Copy the portable folder to a USB stick
-2. Double-click `start-lennart-terminal.cmd`
+1. Copy the EXE (or the unzipped folder) to a USB stick
+2. Double-click it
 
-The launcher keeps **everything on the stick** in a `Data` folder next to the app:
+The app keeps **everything on the stick** in a `Data` folder next to the program:
 
 ```
 USB:\LennartTerminal\
-├── start-lennart-terminal.cmd
-├── node_modules\…            (app + electron)
+├── LennartTerminal-portable.exe   (or Lennart Terminal.exe + its files)
 └── Data\
     ├── settings.json         (providers, API keys, hosts)
     ├── history.jsonl         (permanent history — travels with you)
@@ -144,7 +148,7 @@ npm test        :: offline AI-layer tests (no provider needed)
 node scripts/eval-localai.js   :: answer-quality check against a running llama-server (127.0.0.1:9601)
 ```
 
-Releases are automated: push a tag (`git tag v0.4.0 && git push origin v0.4.0`) and GitHub Actions builds the portable zip and publishes the release. The workflow runs are public: [github.com/h4xtor/Lennart-Terminal/actions](https://github.com/h4xtor/Lennart-Terminal/actions).
+Releases are automated: push a tag (`git tag v0.4.1 && git push origin v0.4.1`) and GitHub Actions builds the portable EXE + zip and publishes the release. `npm run dist` builds the same EXE locally on Windows. The workflow runs are public: [github.com/h4xtor/Lennart-Terminal/actions](https://github.com/h4xtor/Lennart-Terminal/actions).
 
 ## Project layout
 

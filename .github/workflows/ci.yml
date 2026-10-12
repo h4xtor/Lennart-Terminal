@@ -32,3 +32,8 @@ jobs:
 
       - name: Tests
         run: npm test
+
+      # Proves the Windows EXE still builds on every push (no release)
+      - name: Package check (Windows EXE)
+        if: runner.os == 'Windows'
+        run: npx electron-builder --win dir --x64 --publish never

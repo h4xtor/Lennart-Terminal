@@ -30,6 +30,33 @@ app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 
+/**
+ * The EXE is portable by default: settings, history and the offline AI live
+ * in a "Data" folder next to the program (perfect for a USB stick) — the
+ * job the old start-lennart-terminal.cmd did by setting LENNART_DATA_DIR.
+ *  - single-file portable EXE: electron-builder unpacks it to a temp folder
+ *    and tells us where the real .exe lives (PORTABLE_EXECUTABLE_DIR)
+ *  - unpacked/zip build: the folder of "Lennart Terminal.exe"
+ * A folder we cannot write to (f.eks. Program Files) falls back to %APPDATA%.
+ */
+function resolvePortableDataDir() {
+  if (process.env.LENNART_DATA_DIR) return;            // launcher / dev override
+  let base = process.env.PORTABLE_EXECUTABLE_DIR || '';
+  if (!base && app.isPackaged) base = path.dirname(process.execPath);
+  if (!base) return;                                    // `npm start` from source
+  const dir = path.join(base, 'Data');
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const probe = path.join(dir, '.write-test');
+    fs.writeFileSync(probe, 'ok');
+    fs.unlinkSync(probe);
+    process.env.LENNART_DATA_DIR = dir;
+  } catch {
+    /* read-only location → normal %APPDATA% storage */
+  }
+}
+resolvePortableDataDir();
+
 const settings = new SettingsStore();
 const ptyManager = new TerminalManager();
 
@@ -149,6 +176,7 @@ function createWindow() {
     minHeight: 600,
     backgroundColor: '#121317',
     title: 'Lennart Terminal',
+    icon: path.join(__dirname, '..', '..', 'build', 'icon.png'),
     titleBarStyle: 'hidden',
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
@@ -218,12 +246,17 @@ function isAdminSession() {
 function relaunchElevated() {
   // eslint-disable-next-line global-require
   const { spawn } = require('child_process');
-  const exe = process.execPath;
+  // Single-file portable EXE: process.execPath is the temp-unpacked copy —
+  // relaunch the real .exe the user double-clicked instead.
+  const exe = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
   // Elevated processes may start in a different working directory
   // (C:\Windows\system32), so "." as the app path would resolve to the
   // wrong folder and the new instance dies silently. Always pass the
-  // absolute app directory and pin -WorkingDirectory.
-  const appDir = path.join(__dirname, '..', '..');
+  // absolute app directory and pin -WorkingDirectory. A packaged EXE has
+  // its app inside app.asar — the working directory is the EXE's folder.
+  const appDir = app.isPackaged
+    ? path.dirname(exe)
+    : path.join(__dirname, '..', '..');
   // Drop the CDP debugging flag: the old process still holds that port when
   // the elevated one starts, and Electron exits when it cannot bind it.
   const args = process.argv.slice(1)

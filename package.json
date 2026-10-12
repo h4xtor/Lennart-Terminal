@@ -13,7 +13,7 @@
     "test": "node test/run-all.js",
     "check": "node scripts/check.js",
     "pack": "electron-builder --dir",
-    "dist": "electron-builder"
+    "dist": "electron-builder --win --x64 --publish never"
   },
   "dependencies": {
     "node-pty": "^1.1.0",
@@ -29,11 +29,54 @@
   "build": {
     "appId": "dev.lennart.terminal",
     "productName": "Lennart Terminal",
+    "copyright": "MIT — Lennart",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
     "files": [
-      "src/**/*"
+      "src/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/node-pty/**"
+    ],
+    "npmRebuild": false,
+    "electronLanguages": [
+      "en-US",
+      "en-GB",
+      "da"
     ],
     "win": {
-      "target": "nsis"
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "LennartTerminal-${version}-win-x64.${ext}",
+      "requestedExecutionLevel": "asInvoker",
+      "signAndEditExecutable": true
+    },
+    "portable": {
+      "artifactName": "LennartTerminal-${version}-portable.exe"
+    },
+    "linux": {
+      "target": [
+        "dir"
+      ],
+      "icon": "build/icon.png"
     }
   },
   "allowScripts": {
