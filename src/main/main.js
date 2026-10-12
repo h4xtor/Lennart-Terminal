@@ -15,7 +15,8 @@ const fs = require('fs');
 const os = require('os');
 const SettingsStore = require('./store');
 const TerminalManager = require('./pty');
-const { chat, listModels, buildAgentSystemPrompt, buildPowerShellSystemPrompt, PROVIDERS, PROVIDER_GROUPS, listAgyModels, agyAvailable, runAgyAgent } = require('./ai');
+const { chat, listModels, buildChatSystemPrompt, PROVIDERS, PROVIDER_GROUPS, listAgyModels, agyAvailable } = require('./ai');
+const { createAnswerGuard } = require('./answer');
 const { AgentSession } = require('./agent');
 const { LocalAI, LOCAL_MODEL } = require('./localai');
 const { RemoteRunner, sshSetupCommand } = require('./remote');
@@ -486,58 +487,89 @@ ipcMain.handle('ai:listModels', async (_e, cfg) => {
 });
 
 ipcMain.on('ai:chat', async (event, { id, messages, agentMode }) => {
+  const send = (channel, payload) => {
+    if (!event.sender.isDestroyed()) event.sender.send(channel, payload);
+  };
   let cfg = effectiveAiConfig();
   const isEmbeddedLocal = cfg.provider === 'lennart-local';
   try {
     cfg = await resolveLocalProvider(cfg);
   } catch (err) {
-    event.sender.send('ai:chat:error', {
-      id,
-      error: `Lokal AI kunne ikke starte: ${err.message || err}`,
-    });
+    send('ai:chat:error', { id, error: `Lokal AI kunne ikke starte: ${err.message || err}` });
     return;
   }
-  const safeMessages = Array.isArray(messages)
+  const all = Array.isArray(messages)
     ? messages.map((m) => ({
         role: m.role === 'assistant' ? 'assistant' : m.role === 'system' ? 'system' : 'user',
         content: typeof m.content === 'string' ? String(m.content).slice(0, 24000) : '',
-      }))
+      })).filter((m) => m.content)
     : [];
+  // Extra system messages from the renderer (f.eks. /help context) are merged
+  // into ONE system prompt: several chat templates reject a system message
+  // that is not the very first one.
+  const extraSystem = all.filter((m) => m.role === 'system').map((m) => m.content);
+  const convo = all.filter((m) => m.role !== 'system');
+  const users = convo.filter((m) => m.role === 'user');
+  const lastUser = users[users.length - 1];
+  const prevUser = users[users.length - 2];
 
   const ctrl = new AbortController();
   activeChats.set(id, ctrl);
+  let userAborted = false;
 
+  // The embedded model always gets its focused prompt; other providers get
+  // the assistant prompt when "system prompt i chat" (agentMode) is on.
+  // Both only carry the knowledge cards that match the question.
+  const basePrompt = (isEmbeddedLocal || agentMode)
+    ? buildChatSystemPrompt({
+        embedded: isEmbeddedLocal,
+        question: lastUser ? lastUser.content : '',
+        previous: prevUser ? prevUser.content : '',
+      })
+    : '';
+  const system = [basePrompt, ...extraSystem].filter(Boolean).join('\n\n') || null;
+
+  // Loop guard: stops a looping answer the moment it repeats itself
+  const guard = createAnswerGuard({
+    strict: isEmbeddedLocal,
+    onAbort: () => { try { ctrl.abort(); } catch { /* already done */ } },
+  });
+  ctrl.signal.addEventListener('abort', () => { if (!guard.stoppedLoop) userAborted = true; });
+
+  let finishReason = '';
+  let failure = null;
   try {
-    // The embedded model IS the PowerShell assistant — always use its prompt
-    // in chat mode; other providers keep the terminal agent prompt.
-    const system = isEmbeddedLocal
-      ? buildPowerShellSystemPrompt()
-      : (agentMode ? buildAgentSystemPrompt() : null);
-    let acc = ''; // full assistant answer, for the permanent history
-    const lastUser = [...safeMessages].reverse().find((m) => m.role === 'user');
-    await chat(cfg, safeMessages, {
+    const res = await chat(cfg, convo, {
       system,
       signal: ctrl.signal,
       onToken: (token) => {
-        acc += token;
-        if (!event.sender.isDestroyed()) {
-          event.sender.send('ai:chat:chunk', { id, token });
-        }
+        if (!guard.push(token)) return;
+        send('ai:chat:chunk', { id, token });
       },
     });
-    if (lastUser) {
-      historyStore.add({ type: 'ai', command: lastUser.content, output: acc });
-    }
-    event.sender.send('ai:chat:done', { id });
+    finishReason = (res && res.finishReason) || '';
   } catch (err) {
-    const aborted = err.name === 'AbortError';
-    event.sender.send(aborted ? 'ai:chat:done' : 'ai:chat:error', {
-      id,
-      ...(aborted ? {} : { error: String(err.message || err) }),
-    });
+    if (err.name !== 'AbortError') failure = err;
   } finally {
     activeChats.delete(id);
   }
+
+  if (failure && !guard.text) {
+    send('ai:chat:error', { id, error: String(failure.message || failure) });
+    return;
+  }
+  const final = guard.finish({ truncated: finishReason === 'length' });
+  if (lastUser && final.text) {
+    historyStore.add({ type: 'ai', command: lastUser.content, output: final.text });
+  }
+  send('ai:chat:done', {
+    id,
+    text: final.text,
+    runRequested: final.runRequested,
+    stoppedLoop: final.stoppedLoop,
+    truncated: final.truncated,
+    aborted: userAborted,
+  });
 });
 
 ipcMain.on('ai:chat:cancel', (_e, { id }) => {
@@ -620,17 +652,21 @@ function runInPty(sessionId, cmd, timeoutMs) {
       resolve(`[error: terminal session ${sessionId} not found — is the tab still open?]`);
       return;
     }
-    const before = s.buffer.length;
-    let lastLen = -1;
+    // The rolling buffer is capped (40k chars) — once full its LENGTH never
+    // changes, so measure progress with the uncapped counter instead
+    // (the old buffer.length logic returned "" for every agent step on a
+    // busy tab).
+    const before = s.total || 0;
+    let lastTotal = -1;
     let lastChange = Date.now();
     const start = Date.now();
 
     s.pty.write(cmd + '\r');
 
     const timer = setInterval(() => {
-      const len = s.buffer.length;
-      if (len !== lastLen) {
-        lastLen = len;
+      const total = s.total || 0;
+      if (total !== lastTotal) {
+        lastTotal = total;
         lastChange = Date.now();
       }
       const quietFor = Date.now() - lastChange;
@@ -638,8 +674,10 @@ function runInPty(sessionId, cmd, timeoutMs) {
       // done when: output quiet for 1.2s after at least 1.5s, or timeout
       if ((elapsed > 1500 && quietFor > 1200) || elapsed > timeoutMs) {
         clearInterval(timer);
-        const raw = s.buffer.slice(before);
+        const grown = (s.total || 0) - before;
+        const raw = grown <= 0 ? '' : s.buffer.slice(-Math.min(grown, s.buffer.length));
         resolve(raw
+          .replace(/\x1b\][^\x07]*\x07/g, '')
           .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')
           .replace(/\r/g, '')
           .trim());

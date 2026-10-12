@@ -61,7 +61,8 @@ Rules:
 - One command per reply. Simple, self-contained commands (no interactive editors like vim/nano).
 - "done":true when the job is complete (command can be "" then).
 - If a command failed, adapt: read the error and change approach.
-- Never run destructive commands unless strictly required by the job.`;
+- Never run destructive commands unless strictly required by the job.
+- Write "thought" in Danish (the user reads it).`;
 
 // ---------------------------------------------------------------------------
 // Agent session
@@ -162,12 +163,23 @@ class AgentSession {
       'Reply with ONLY the JSON object for the next step.',
     ].join('\n');
 
-    let raw = '';
-    await chat(cfg, [{ role: 'user', content: userContent }], {
-      system: PLAN_INSTRUCTION,
-      onToken: (t) => { raw += t; },
-    });
-    return parseDecision(raw);
+    const ask = async (messages) => {
+      let raw = '';
+      await chat(cfg, messages, { system: PLAN_INSTRUCTION, onToken: (t) => { raw += t; } });
+      return raw;
+    };
+    const first = await ask([{ role: 'user', content: userContent }]);
+    try {
+      return parseDecision(first);
+    } catch {
+      // Small models sometimes answer in prose once — ask again, one time
+      const retry = await ask([
+        { role: 'user', content: userContent },
+        { role: 'assistant', content: first.slice(0, 1500) },
+        { role: 'user', content: 'That was not valid JSON. Reply with ONLY the JSON object, nothing else.' },
+      ]);
+      return parseDecision(retry);
+    }
   }
 
   async askAgy(history) {
@@ -193,7 +205,20 @@ function parseDecision(raw) {
   if (start === -1 || end === -1) {
     throw new Error(`Modellen svarede ikke med JSON: ${raw.slice(0, 160)}`);
   }
-  const obj = JSON.parse(candidate.slice(start, end + 1));
+  let obj;
+  try {
+    obj = JSON.parse(candidate.slice(start, end + 1));
+  } catch {
+    // Common small-model slips: trailing commas and smart quotes
+    const repaired = candidate.slice(start, end + 1)
+      .replace(/[“”]/g, '"')
+      .replace(/,\s*([}\]])/g, '$1');
+    try {
+      obj = JSON.parse(repaired);
+    } catch {
+      throw new Error(`Modellen svarede ikke med gyldig JSON: ${raw.slice(0, 160)}`);
+    }
+  }
   return {
     thought: String(obj.thought || ''),
     done: Boolean(obj.done),

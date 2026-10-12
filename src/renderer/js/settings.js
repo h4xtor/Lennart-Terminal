@@ -376,7 +376,9 @@ async function fetchSelectedLocalModel() {
     btn.disabled = false;
     btn.textContent = 'Hent valgt';
   }
-}function collectSettingsPatch() {
+}
+
+function collectSettingsPatch() {
   const pid = currentPid();
   // Never persist an undownloaded catalogue placeholder ("catalog:xyz")
   const modelValue = (() => {
@@ -384,12 +386,12 @@ async function fetchSelectedLocalModel() {
     return v.startsWith('catalog:') ? '' : v;
   })();
   return {
-
     ai: {
       provider: pid,
       model: modelValue,
       baseUrl: document.getElementById('set-baseurl').value.trim(),
-      temperature: parseFloat(document.getElementById('set-temp').value) || 0.4,
+      // 0 is a valid temperature — "|| 0.4" silently turned it into 0.4
+      temperature: numberOr(document.getElementById('set-temp').value, 0.4),
       maxTokens: parseInt(document.getElementById('set-maxtokens').value, 10) || 0,
       topP: parseFloat(document.getElementById('set-topp').value) || 1,
     },
@@ -417,6 +419,11 @@ async function fetchSelectedLocalModel() {
     agentAutoApprove: document.getElementById('set-agent-autoapprove').checked,
     agyModel: document.getElementById('set-agy-model').value,
   };
+}
+
+function numberOr(value, fallback) {
+  const n = parseFloat(value);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 function updateToppLabel() {

@@ -14,7 +14,11 @@ async function testSshArgv() {
   assert.strictEqual(file, 'ssh.exe');
   assert.ok(args.includes('admin@192.168.1.50'));
   assert.ok(args.includes('C:\\k.pem'));
-  assert.ok(args.includes('Get-Date'));
+  const enc = args[args.indexOf('-EncodedCommand') + 1];
+  assert.ok(Buffer.from(enc, 'base64').toString('utf16le').includes('Get-Date'), 'command travels encoded');
+  // a huge command falls back to -Command (cmd.exe line limit on the target)
+  const [, bigArgs] = buildRemoteArgv('h', 'ssh', 'x'.repeat(6000), {});
+  assert.ok(bigArgs.includes('-Command'), 'long commands fall back to -Command');
   assert.ok(!args.some((a) => typeof a === 'string' && /password/i.test(a)), 'no password flags in ssh argv');
   console.log('PASS ssh argv');
 }
@@ -36,6 +40,7 @@ async function testWinrmArgv() {
   assert.ok(decoded.includes("'pc13'"), 'decoded command contains host');
   assert.ok(decoded.includes("'S3cret!'"), 'password travels inside the encoded blob, not raw argv');
   assert.ok(!args.some((a) => a === 'S3cret!'), 'password never visible as plain argv');
+  assert.ok(decoded.includes('TrustedHosts'), 'decoded command explains the TrustedHosts fix');
   console.log('PASS winrm argv (encoded credentials)');
 }
 

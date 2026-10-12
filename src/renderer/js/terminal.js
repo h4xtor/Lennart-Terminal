@@ -180,7 +180,7 @@ class TerminalTab {
         const k = (ev.key || '').toLowerCase();
         const c = ev.code || '';
         if (k === ',' || c === 'Comma' || k === 'j' || c === 'KeyJ' ||
-            k === 'w' || c === 'KeyW' || c === 'KeyT') {
+            k === 'w' || c === 'KeyW' || c === 'KeyT' || k === 'h' || c === 'KeyH') {
           return false;
         }
       }
@@ -226,16 +226,18 @@ class TerminalTab {
 
     // PTY -> xterm (+ rolling buffer for AI context)
     this.outputBuf = '';
-    window.lennart.onTerminalData(({ id, data }) => {
-      if (id !== this.sessionId) return;
-      this.outputBuf = (this.outputBuf + data).slice(-8000);
-      this.xterm?.write(data);
-    });
-    window.lennart.onTerminalExit(({ id, code }) => {
-      if (id !== this.sessionId || this.dead) return;
-      this.dead = true;
-      this.xterm.writeln(`\r\n\x1b[38;5;245m[process exited with code ${code} — tab stays open]\x1b[0m`);
-    });
+    this.unsubs = [
+      window.lennart.onTerminalData(({ id, data }) => {
+        if (id !== this.sessionId || !this.xterm) return;
+        this.outputBuf = (this.outputBuf + data).slice(-8000);
+        this.xterm.write(data);
+      }),
+      window.lennart.onTerminalExit(({ id, code }) => {
+        if (id !== this.sessionId || this.dead) return;
+        this.dead = true;
+        this.xterm?.writeln(`\r\n\x1b[38;5;245m[processen afsluttede med kode ${code} — fanen forbliver åben]\x1b[0m`);
+      }),
+    ];
 
     this.fit();
     return this;
@@ -274,8 +276,11 @@ class TerminalTab {
 
   destroy() {
     this.dead = true;
+    for (const off of this.unsubs || []) { try { if (typeof off === 'function') off(); } catch { /* ignore */ } }
+    this.unsubs = [];
     if (this.sessionId) window.lennart.destroyTerminal(this.sessionId);
     this.xterm?.dispose();
+    this.xterm = null;
     this.el?.remove();
     this.tabEl?.remove();
     termTabs.delete(this.tabId);
@@ -300,7 +305,9 @@ function activateTab(tabId) {
   activeTabId = tabId;
 
   for (const [id, t] of termTabs) {
-    t.el.style.display = id === tabId ? 'block' : 'none';
+    // Remote tabs are a flex column (banner + terminal) — 'block' collapsed
+    // their terminal to zero height the first time you switched back to one
+    t.el.style.display = id === tabId ? (t.remote ? 'flex' : 'block') : 'none';
     t.tabEl?.classList.toggle('active', id === tabId);
   }
   // Give the DOM a tick to lay out before fitting
@@ -350,7 +357,6 @@ function createRemoteTab(host) {
   tab.el = document.createElement('div');
   tab.el.className = 'term-tab';
   tab.el.style.height = '100%';
-  tab.el.style.display = 'none';
   tab.el.style.display = 'flex';
   tab.el.style.flexDirection = 'column';
   container.appendChild(tab.el);
@@ -383,7 +389,7 @@ function createRemoteTab(host) {
     lineHeight: 1.15,
     cursorBlink: true,
     scrollback: 8000,
-    theme: TERM_THEME,
+    theme: CURRENT_TERM_THEME,
   });
   tab.fitAddon = new FitAddon.FitAddon();
   tab.xterm.loadAddon(tab.fitAddon);
@@ -391,10 +397,14 @@ function createRemoteTab(host) {
   tab.xterm.writeln(`\x1b[38;5;245m-- Fjernforbindelse: ${host.name || host.host} (${host.host}) via ${host.method.toUpperCase()} --\x1b[0m`);
   tab.xterm.writeln(`\x1b[38;5;245m   Skriv kommandoer i boksen nederst og tryk Enter — de køres på værten.\x1b[0m\r\n`);
 
-  window.lennart.onRemoteData(({ tabId, text }) => {
-    if (tabId !== tab.tabId) return;
-    tab.xterm.write(text.replace(/\n/g, '\r\n'));
-  });
+  tab.outputBuf = '';
+  tab.unsubs = [
+    window.lennart.onRemoteData(({ tabId, text }) => {
+      if (tabId !== tab.tabId || tab.dead) return;
+      tab.outputBuf = (tab.outputBuf + text).slice(-8000);
+      tab.xterm.write(text.replace(/\r?\n/g, '\r\n'));
+    }),
+  ];
 
   // run a command on the host (called by the bottom prompt box)
   tab.runCommand = async (cmd) => {
@@ -402,16 +412,28 @@ function createRemoteTab(host) {
       tab.xterm.writeln(`\x1b[33m[stadig i gang — vent på forrige kommando]\x1b[0m`);
       return;
     }
+    if (!String(cmd || '').trim()) return;
     tab.busy = true;
     tab.xterm.writeln(`\x1b[38;5;141mPS ${host.host}> ${cmd}\x1b[0m`);
-    const res = await window.lennart.remoteRun({ hostId: host.id, command: cmd, tabId: tab.tabId });
-    if (res && res.timedOut) tab.xterm.writeln(`\x1b[33m[timeout — kommandoen gav ikke svar i tide]\x1b[0m`);
-    tab.xterm.write('\r\n');
-    tab.busy = false;
+    try {
+      const res = await window.lennart.remoteRun({ hostId: host.id, command: cmd, tabId: tab.tabId });
+      if (tab.dead) return;
+      if (res && res.timedOut) tab.xterm.writeln('\x1b[33m[timeout — kommandoen gav ikke svar i tide]\x1b[0m');
+      else if (res && !res.ok && !String(res.output || '').trim()) {
+        tab.xterm.writeln(`\x1b[31m[fejl — kode ${res.code}; tjek forbindelsen med Test-knappen]\x1b[0m`);
+      }
+      tab.xterm.write('\r\n');
+    } catch (err) {
+      if (!tab.dead) tab.xterm.writeln(`\x1b[31m[fejl: ${err.message || err}]\x1b[0m`);
+    } finally {
+      tab.busy = false;
+    }
   };
   tab.fit = () => { try { tab.fitAddon.fit(); } catch { /* hidden */ } };
   tab.destroy = () => {
     tab.dead = true;
+    for (const off of tab.unsubs) { try { if (typeof off === 'function') off(); } catch { /* ignore */ } }
+    tab.unsubs = [];
     tab.xterm.dispose();
     tab.el.remove();
     tab.tabEl.remove();

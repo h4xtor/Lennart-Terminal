@@ -9,7 +9,7 @@
 const http = require('http');
 const assert = require('assert');
 const {
-  chat, listModels, buildAgentSystemPrompt, buildPowerShellSystemPrompt, PROVIDERS,
+  chat, listModels, buildAgentSystemPrompt, buildPowerShellSystemPrompt, buildChatSystemPrompt, PROVIDERS,
 } = require('../src/main/ai');
 
 const PORT = 18114;
@@ -98,8 +98,9 @@ const server = http.createServer((req, res) => {
       lastChatBody = parsed;
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       res.write('data: {"choices":[{"delta":{"content":"hello"}}]}\n\n');
-      res.write('data: {"choices":[{"delta":{"content":" world"}}]}\n\n');
-      res.write('data: [DONE]\n\n');
+      const cut = parsed.messages.some((m) => m.content === 'cut me off');
+      res.write(`data: {"choices":[{"delta":{"content":" world"},"finish_reason":"${cut ? 'length' : 'stop'}"}]}\r\n\r\n`);
+      res.write('data: [DONE]');
       res.end();
     });
     return;
@@ -109,89 +110,63 @@ const server = http.createServer((req, res) => {
 });
 
 /**
- * The embedded assistant's system prompt is its full training compendium:
- * app knowledge + Windows troubleshooting + the answer-format contract the
- * renderer depends on (FIRST ```powershell block + KØRER marker). Lock every
- * part of it so the training cannot silently shrink back.
+ * The embedded assistant gets a SHORT core prompt plus only the knowledge
+ * cards that match the question. The real bug this locks down: a WinRM
+ * question came back with sshd/OpenSSH steps because the old giant
+ * compendium put every topic in front of a 3B model at once.
  */
-function testPowerShellPromptTraining() {
-  const p = buildPowerShellSystemPrompt();
+function testFocusedPrompts() {
+  const { CARDS, selectCards } = require('../src/main/knowledge');
 
-  // It must be a real compendium, not the old 15-liner
-  assert.ok(p.length > 3000, `prompt is a full compendium (${p.length} chars)`);
-
-  // --- Part 1: the app itself (facts a fresh user must learn from the AI) ---
-  for (const fact of [
-    'LENNART TERMINAL',     // app section header
-    'Ctrl+T',               // shortcuts
-    'Ctrl+J',
-    'Fjernsupport',         // menubar menu
-    'Tilføj vært',          // host management
-    'Hent modeller',        // model manager
-    '127.0.0.1:9601',       // embedded llama-server
-    'Data/history.jsonl',   // permanent history
-    'Kør',                  // code-block Run button
-  ]) {
-    assert.ok(p.includes(fact), `prompt teaches app fact "${fact}"`);
-  }
-
-  // --- Part 2: the Windows/PowerShell troubleshooting compendium ---
-  for (const cmd of [
-    'Get-NetTCPConnection', // who listens on a port
-    'ipconfig /all',
-    'Get-Service',
-    'Get-Volume',           // disk health
-    'Get-WinEvent',         // event logs
-    'sfc /scannow',         // system repair
-    'nvidia-smi',           // GPU
-    'Enable-PSRemoting',    // remote support
-    'winget',               // package manager
-    'Stop-Process',
-  ]) {
-    assert.ok(p.includes(cmd), `prompt compendium covers "${cmd}"`);
-  }
-
-  // --- Part 3: the diagnostic method ---
-  assert.ok(/SÅDAN DIAGNOSTICERER DU/.test(p), 'prompt teaches the diagnostic method');
-
-  // --- Part 4: the answer-format contract (renderer auto-run depends on it) ---
+  // --- the format contract the renderer depends on ---
+  const p = buildChatSystemPrompt({ embedded: true, question: 'vis min IP' });
   assert.ok(p.includes('KØRER'), 'prompt keeps the KØRER auto-run marker');
   assert.ok(p.includes('```powershell'), 'prompt keeps the fenced powershell block format');
-  assert.ok(/Svar på dansk/.test(p), 'prompt demands Danish answers');
-  assert.ok(/FØRSTE/.test(p) || /første ```powershell/.test(p) || /FØRSTE ```powershell/.test(p),
-    'prompt pins the runnable command to the FIRST powershell block');
+  assert.ok(/første kodeblok/i.test(p), 'prompt pins the runnable command to the FIRST block');
+  assert.ok(/Svar altid på dansk/.test(p), 'prompt demands Danish answers');
+  assert.ok(/kun én gang/.test(p), 'prompt forbids repeating steps');
+  assert.ok(/højst 4 korte trin/.test(p), 'prompt caps multi-step answers');
+  assert.ok(/Ingen overskrifter/.test(p), 'prompt forbids # headings');
+  assert.ok(p.length < 3500, `embedded prompt stays small (${p.length} chars — the old one was ~11k)`);
 
-  // --- Part 5: answer style — the small model must answer directly and never
-  // run in circles (the old model repeated steps 2..9 about the same PC) ---
-  assert.ok(p.includes('DEL 5: SVARSTIL'), 'prompt teaches the answer-style section');
-  assert.ok(p.includes('ÉN gang'), 'prompt forbids repeating a step');
-  assert.ok(p.includes('gentag for næste PC'), 'prompt gives the repeat-instead-of-looping idiom');
-  assert.ok(/Stop når svaret er givet/.test(p), 'prompt tells the model to stop once answered');
-  assert.ok(/Direkte: Begynd med selve svaret/.test(p), 'prompt demands starting with the answer');
-  assert.ok(p.includes('HÅRD GRÆNSE'), 'prompt sets the hard 4-point limit');
-  assert.ok(p.includes('punkt 5'), 'prompt forbids a fifth point explicitly');
-  // The answer format is described IN WORDS. There must be no few-shot
-  // "Bruger:/Svar:" transcript left anywhere in the prompt: the model
-  // copied it verbatim — echoing the user's question, emitting a fake
-  // KØRER and regurgitating the Regler list as its "answer".
-  assert.ok(p.includes('Et svar har denne form'), 'prompt describes the answer form in words');
-  assert.ok(!p.includes('<den ENE kommando'), 'no placeholder example left to copy');
-  assert.strictEqual(p.indexOf('Bruger: Jeg skal RDP'), -1, 'the RDP dialog example is gone');
-  assert.strictEqual(p.indexOf('Bruger: Hvad er kommanden'), -1, 'the IP dialog example is gone');
-  assert.ok(p.includes('NETOP det, brugeren spurgte om'), 'prompt pins the answer to the actual question');
-  assert.ok(p.includes('gengiv brugerens spørgsmål'), 'prompt forbids echoing the question');
-  assert.ok(p.trim().endsWith('ellers aldrig.'), 'the prompt ends with a hard rule, not an example');
-  assert.ok(p.includes('Forklar som til en ven'), 'prompt demands plain, friendly wording');
-  assert.ok(p.includes('Ingen overskrifter'), 'prompt forbids ### headings (they restart the numbering)');
-  assert.ok(p.includes('Ingen underpunkter'), 'prompt forbids nested bullet levels');
-  assert.ok(p.includes('Ingen numre'), 'prompt forbids numbered lists (the loop generator)');
-  assert.ok(p.includes('“11.”'), 'prompt forbids continuing a previous numbering');
+  // --- WinRM: WinRM card only, no SSH card ---
+  const winrm = buildChatSystemPrompt({ embedded: true, question: 'Forklar hvordan WinRM fungerer og opsættes? Jeg skal køre kommandoer på 15 PC\'er' });
+  assert.ok(winrm.includes('Enable-PSRemoting'), 'WinRM question gets the WinRM card');
+  assert.ok(winrm.includes('Invoke-Command'), 'WinRM card teaches running on many PCs');
+  assert.ok(winrm.includes('TrustedHosts'), 'WinRM card covers TrustedHosts for non-domain PCs');
+  assert.ok(!winrm.includes('sshd'), 'WinRM question does NOT get the SSH card (the screenshot bug)');
+  assert.ok(!/Get-SmbShare/.test(winrm), 'WinRM question does not get SMB sharing commands');
 
-  // --- the agent prompt is unchanged in contract ---
-  const agent = buildAgentSystemPrompt();
-  assert.ok(agent.includes('Lennart'), 'agent prompt keeps its identity');
+  // --- topic routing ---
+  const route = (q) => selectCards(q).map((c) => c.id);
+  assert.deepStrictEqual(route('Hvordan finder jeg ud af hvilken proces der lytter på port 3000?')[0], 'ports');
+  assert.deepStrictEqual(route('Hvordan slår jeg Remote Desktop til?')[0], 'rdp');
+  assert.ok(!route('Hvordan slår jeg Remote Desktop til?').includes('winrm'), 'RDP is not mixed with WinRM');
+  assert.deepStrictEqual(route('Print spooleren hænger')[0], 'services');
+  assert.deepStrictEqual(route('Hvordan slår jeg ssh til?')[0], 'ssh');
+  assert.deepStrictEqual(route('Hvad gør Ctrl+J i Lennart Terminal?')[0], 'app');
+  assert.deepStrictEqual(route('hej'), ['general'], 'no match → general card');
+  assert.ok(selectCards('og på de andre?', 'Hvordan virker WinRM?').some((c) => c.id === 'winrm'),
+    'a follow-up question keeps the previous topic');
 
-  console.log(`PASS PowerShell prompt training (${p.length} chars, app + troubleshooting + format)`);
+  // --- the knowledge base still covers the classic toolbox ---
+  const all = CARDS.map((c) => c.text.join('\n')).join('\n');
+  for (const cmd of ['Get-NetTCPConnection', 'ipconfig /all', 'Restart-Service', 'Get-PSDrive', 'Get-WinEvent',
+    'sfc /scannow', 'nvidia-smi', 'Enable-PSRemoting', 'winget', 'Stop-Process', 'fDenyTSConnections']) {
+    assert.ok(all.includes(cmd), `knowledge base covers "${cmd}"`);
+  }
+  for (const c of CARDS) {
+    assert.ok(!c.text.some((l) => /^\s*\d+\.\s/.test(l)), `card ${c.id} has no numbered lines (the model copies them)`);
+  }
+
+  // --- the cloud prompt: Danish, app-aware, still carries "Lennart" ---
+  const cloud = buildAgentSystemPrompt('Hvordan virker WinRM?');
+  assert.ok(cloud.includes('Lennart'), 'cloud prompt keeps its identity');
+  assert.ok(/dansk/.test(cloud), 'cloud prompt answers in Danish');
+  assert.ok(cloud.includes('Invoke-Command'), 'cloud prompt gets the matching knowledge too');
+  assert.ok(buildPowerShellSystemPrompt().includes('KØRER'), 'back-compat builder still works');
+
+  console.log(`PASS focused prompts (${p.length} chars embedded, ${CARDS.length} knowledge cards, topic routing)`);
 }
 
 /**
@@ -226,7 +201,7 @@ function testProviderCatalog() {
 }
 
 async function main() {
-  testPowerShellPromptTraining();
+  testFocusedPrompts();
   testProviderCatalog();
   await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
 
@@ -254,6 +229,8 @@ async function main() {
     onToken: (t) => { ocText += t; },
   });
   assert.strictEqual(ocText, 'hello world', `openai-compatible streaming failed: ${ocText}`);
+  const cutRes = await chat(ocCfg, [{ role: 'user', content: 'cut me off' }], { onToken: () => {} });
+  assert.strictEqual(cutRes.finishReason, 'length', 'finish_reason "length" is reported (CRLF framing + no trailing blank line)');
   console.log('PASS openai-compatible listModels + streaming chat');
 
   // --- Ollama anti-repetition options must reach the server ---
@@ -269,7 +246,7 @@ async function main() {
   assert.ok(lastChatBody, 'mock captured the embedded chat body');
   assert.strictEqual(lastChatBody.repeat_penalty, 1.15, 'llama.cpp repeat_penalty is sent');
   assert.strictEqual(lastChatBody.repeat_last_n, 256, 'llama.cpp repeat_last_n is sent');
-  assert.strictEqual(lastChatBody.max_tokens, 400, 'embedded answers are capped at 400 tokens');
+  assert.strictEqual(lastChatBody.max_tokens, 700, 'embedded answers are capped at 700 tokens');
 
   // Overlong and loop-shaped answers must be dropped from history entirely:
   // the model would otherwise continue its own numbering next turn
@@ -298,7 +275,7 @@ async function main() {
   await chat({ ...localCfg, provider: 'openai-compatible', embeddedLocal: true }, [
     { role: 'user', content: 'vis IP' },
   ], { onToken: () => {} });
-  assert.strictEqual(lastChatBody.max_tokens, 400,
+  assert.strictEqual(lastChatBody.max_tokens, 700,
     'embeddedLocal keeps the answer cap after the provider rewrite');
   assert.strictEqual(lastChatBody.repeat_penalty, 1.15,
     'embeddedLocal keeps repeat_penalty after the provider rewrite');

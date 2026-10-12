@@ -2,13 +2,15 @@
 
 A AI-inspired terminal for Windows with an integrated **AI agent** — chat with your terminal, or let the AI take over and run a whole job for you.
 
-[![CI](https://github.com/h4xtor/Lennarts-Terminal/actions/workflows/ci.yml/badge.svg)](https://github.com/h4xtor/Lennarts-Terminal/actions/workflows/ci.yml) ![platform](https://img.shields.io/badge/platform-Windows-blue) ![license](https://img.shields.io/badge/license-MIT-green)
+[![CI](https://github.com/h4xtor/Lennart-Terminal/actions/workflows/ci.yml/badge.svg)](https://github.com/h4xtor/Lennart-Terminal/actions/workflows/ci.yml) ![platform](https://img.shields.io/badge/platform-Windows-blue) ![license](https://img.shields.io/badge/license-MIT-green)
 
 ## Features
 
 - **UI** — dark theme, left sidebar with shells, tabbed terminals, and the signature bottom prompt box
 - **Real PTY sessions** — full-color PowerShell / PowerShell 7 / cmd / Git Bash tabs (ConPTY via node-pty)
-- **AI chat panel** — streaming answers with command code blocks; every block gets **Copy / Insert / Run** buttons (Run types it into the active tab)
+- **AI chat panel** — streaming answers with command code blocks; every block gets **Kopiér / Indsæt / Kør** buttons (Kør runs it in the active tab — local or remote)
+- **Focused AI knowledge** — every question only gets the matching knowledge cards (WinRM, SSH, RDP, ports, network, disk, services, …), so small offline models stay on topic instead of mixing subjects
+- **Loop guard** — a looping answer is stopped the moment it repeats itself, duplicates and leaked prompt text are removed, and cut-off answers are tidied with a note
 - **Agent mode** — describe a job ("find what's eating port 3000 and kill it") and the agent plans, runs commands in your terminal, reads the output and adapts until done. Live step-by-step view, Stop button, and a hard deny-list for dangerous commands
 - **Bring any AI** — **indbygget offline-model** (Qwen2.5 Coder, hardkodet — virker uden internet), local (Ollama, LM Studio, llama.cpp) or cloud (OpenRouter, **OmniRoute**, OpenAI, Claude, Gemini, Qwen, Kimi) or the locally installed Antigravity CLI as the agent brain
 - **USB-portable** — put the folder (with a `Data` directory) on a USB stick and carry your terminal, AI, settings, hosts and **full history** between PCs. Perfect for troubleshooting machines on a LAN
@@ -21,7 +23,7 @@ A AI-inspired terminal for Windows with an integrated **AI agent** — chat with
 
 ### Option A — portable zip (nothing to install)
 
-Grab `LennartTerminal-portable-*.zip` from the [latest release](https://github.com/h4xtor/Lennarts-Terminal/releases/latest), unzip it anywhere (USB stick works) and double-click `start-lennart-terminal.cmd`. No Node.js, no installer.
+Grab `LennartTerminal-portable-*.zip` from the [latest release](https://github.com/h4xtor/Lennart-Terminal/releases/latest), unzip it anywhere (USB stick works) and double-click `start-lennart-terminal.cmd`. No Node.js, no installer.
 
 The built-in offline AI downloads its engine + model (~1 GB) on first use — or ships **inside the release zip** when bundled, fully offline from minute one.
 
@@ -30,8 +32,8 @@ The built-in offline AI downloads its engine + model (~1 GB) on first use — or
 Install [Node.js](https://nodejs.org) (LTS), then:
 
 ```cmd
-git clone https://github.com/h4xtor/Lennarts-Terminal.git
-cd Lennarts-Terminal
+git clone https://github.com/h4xtor/Lennart-Terminal.git
+cd Lennart-Terminal
 npm install
 npm start
 ```
@@ -66,6 +68,14 @@ Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service ssh
 ```
 
 4. Click the host in the sidebar → a remote tab opens. Type commands in the bottom prompt box — they execute **on that PC**, stream output live, and land in the permanent history marked `REMOTE`.
+
+### Many PCs at once with WinRM (no domain)
+
+1. On **each target PC** (as admin, once): Setup → **“Slå WinRM til (kør på MÅL-PC)”**, and for local admin accounts Fjernsupport → **“WinRM: tillad lokale admin-konti”**. Frozen PCs (Deep Freeze): do it while thawed.
+2. On **your own PC** (as admin, once): Fjernsupport → **“WinRM: stol på LAN-PC'er”** (sets `TrustedHosts`).
+3. Add each PC with **Tilføj vært…** → method **WinRM**. If the connection fails, the remote tab prints the exact fix (TrustedHosts, access denied, WinRM off).
+
+Or straight from PowerShell: `Invoke-Command -ComputerName PC01,PC02,PC03 -Credential (Get-Credential) -ScriptBlock { hostname }`
 
 ## Connect an AI
 
@@ -131,6 +141,7 @@ Settings → *Agent* lets you choose who drives Agent mode:
 ```cmd
 npm run check   :: fast node --check syntax gate over all JS
 npm test        :: offline AI-layer tests (no provider needed)
+node scripts/eval-localai.js   :: answer-quality check against a running llama-server (127.0.0.1:9601)
 ```
 
 Releases are automated: push a tag (`git tag v0.4.0 && git push origin v0.4.0`) and GitHub Actions builds the portable zip and publishes the release. The workflow runs are public: [github.com/h4xtor/Lennart-Terminal/actions](https://github.com/h4xtor/Lennart-Terminal/actions).

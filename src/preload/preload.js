@@ -2,6 +2,14 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
+// Every on*() subscription returns an unsubscribe function, so closed tabs
+// can detach their listeners (they used to pile up for every tab ever opened).
+function subscribe(channel, cb) {
+  const handler = (_e, payload) => cb(payload);
+  ipcRenderer.on(channel, handler);
+  return () => ipcRenderer.removeListener(channel, handler);
+}
+
 try {
   require('fs').appendFileSync(
     require('path').join(require('os').tmpdir(), 'lennart-terminal-main.log'),
@@ -16,8 +24,8 @@ contextBridge.exposeInMainWorld('lennart', {
   writeTerminal: (id, data) => ipcRenderer.send('terminal:write', { id, data }),
   resizeTerminal: (id, cols, rows) => ipcRenderer.send('terminal:resize', { id, cols, rows }),
   destroyTerminal: (id) => ipcRenderer.send('terminal:destroy', { id }),
-  onTerminalData: (cb) => ipcRenderer.on('terminal:data', (_e, payload) => cb(payload)),
-  onTerminalExit: (cb) => ipcRenderer.on('terminal:exit', (_e, payload) => cb(payload)),
+  onTerminalData: (cb) => subscribe('terminal:data', cb),
+  onTerminalExit: (cb) => subscribe('terminal:exit', cb),
 
   // settings
   getSettings: () => ipcRenderer.invoke('settings:get'),
@@ -30,14 +38,14 @@ contextBridge.exposeInMainWorld('lennart', {
   providersCatalog: () => ipcRenderer.invoke('ai:providers'),
   chat: (payload) => ipcRenderer.send('ai:chat', payload),
   cancelChat: (id) => ipcRenderer.send('ai:chat:cancel', { id }),
-  onChatChunk: (cb) => ipcRenderer.on('ai:chat:chunk', (_e, payload) => cb(payload)),
-  onChatDone: (cb) => ipcRenderer.on('ai:chat:done', (_e, payload) => cb(payload)),
-  onChatError: (cb) => ipcRenderer.on('ai:chat:error', (_e, payload) => cb(payload)),
+  onChatChunk: (cb) => subscribe('ai:chat:chunk', cb),
+  onChatDone: (cb) => subscribe('ai:chat:done', cb),
+  onChatError: (cb) => subscribe('ai:chat:error', cb),
 
   // agent (autopilot + antigravity engine)
   agentStart: (payload) => ipcRenderer.invoke('agent:start', payload),
   agentStop: (id) => ipcRenderer.send('agent:stop', { id }),
-  onAgentEvent: (cb) => ipcRenderer.on('agent:event', (_e, payload) => cb(payload)),
+  onAgentEvent: (cb) => subscribe('agent:event', cb),
   agyAvailable: () => ipcRenderer.invoke('ai:agyAvailable'),
   agyModels: () => ipcRenderer.invoke('ai:agyModels'),
 
@@ -46,7 +54,7 @@ contextBridge.exposeInMainWorld('lennart', {
   localaiEnsure: () => ipcRenderer.invoke('localai:ensure'),
   localaiListModels: () => ipcRenderer.invoke('localai:listModels'),
   localaiDownloadModel: (spec) => ipcRenderer.invoke('localai:downloadModel', spec),
-  onLocalaiProgress: (cb) => ipcRenderer.on('localai:progress', (_e, payload) => cb(payload)),
+  onLocalaiProgress: (cb) => subscribe('localai:progress', cb),
 
   // network hosts + remote execution
   hostsList: () => ipcRenderer.invoke('hosts:list'),
@@ -55,7 +63,7 @@ contextBridge.exposeInMainWorld('lennart', {
   hostsSshSetupCommand: () => ipcRenderer.invoke('hosts:sshSetupCommand'),
   remoteTest: (host) => ipcRenderer.invoke('remote:test', host),
   remoteRun: (payload) => ipcRenderer.invoke('remote:run', payload),
-  onRemoteData: (cb) => ipcRenderer.on('remote:data', (_e, payload) => cb(payload)),
+  onRemoteData: (cb) => subscribe('remote:data', cb),
 
   // permanent history
   historyQuery: (opts) => ipcRenderer.invoke('history:query', opts),
@@ -77,5 +85,5 @@ contextBridge.exposeInMainWorld('lennart', {
   closeWindow: () => ipcRenderer.send('app:close'),
 
   // native menu actions (File/View accelerators)
-  onMenuAction: (cb) => ipcRenderer.on('app:menu-action', (_e, action) => cb(action)),
+  onMenuAction: (cb) => subscribe('app:menu-action', cb),
 });

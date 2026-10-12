@@ -227,8 +227,8 @@ function initMenubar() {
   bar.appendChild(spacer);
   const tag = document.createElement('span');
   tag.id = 'version-tag';
-  tag.title = 'Lennart Terminal — CI: github.com/h4xtor/Lennarts-Terminal/actions';
-  tag.textContent = 'v0.4.0';
+  tag.title = 'Lennart Terminal — CI: github.com/h4xtor/Lennart-Terminal/actions';
+  tag.textContent = 'v0.4.1';
   bar.appendChild(tag);
   window.lennart.getPaths()
     .then((p) => { if (p && p.version) tag.textContent = `v${p.version}`; })
@@ -307,7 +307,7 @@ async function runMenuAction(action) {
       if (typeof renderModelPanel === 'function') await renderModelPanel();
       break;
     case 'github-actions':
-      window.lennart.openExternal('https://github.com/h4xtor/Lennarts-Terminal/actions');
+      window.lennart.openExternal('https://github.com/h4xtor/Lennart-Terminal/actions');
       break;
     case 'run-as-admin': {
       const ok = window.confirm('Genstart Lennart Terminal som administrator (UAC)?\n\nAlle kommandoer og faner køres derefter med administrator-rettigheder.');
@@ -316,7 +316,7 @@ async function runMenuAction(action) {
     }
     case 'about': {
       const p = await window.lennart.getPaths();
-      window.alert(`Lennart Terminal v${p.version} · ${p.platform}\n\nGitHub (CI): https://github.com/h4xtor/Lennarts-Terminal/actions\n\nIndbygget offline-AI, 20 netværksknapper, 10 dropdown-menuer, fjernstyring via SSH/WinRM.`);
+      window.alert(`Lennart Terminal v${p.version} · ${p.platform}\n\nGitHub (CI): https://github.com/h4xtor/Lennart-Terminal/actions\n\nIndbygget offline-AI, 20 netværksknapper, 10 dropdown-menuer, fjernstyring via SSH/WinRM.`);
       break;
     }
     default:
@@ -473,7 +473,7 @@ function wireSettingsEvents() {
       accent: document.getElementById('set-accent').value,
     }));
   document.getElementById('btn-open-actions')?.addEventListener('click', () =>
-    window.lennart.openExternal('https://github.com/h4xtor/Lennarts-Terminal/actions'));
+    window.lennart.openExternal('https://github.com/h4xtor/Lennart-Terminal/actions'));
   // Section nav chips in the settings dialog
   document.querySelectorAll('#set-nav button').forEach((b) => {
     b.addEventListener('click', () => {

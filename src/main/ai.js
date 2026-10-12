@@ -278,8 +278,8 @@ async function listModels(cfg, { timeout = 6000 } = {}) {
       if (!res.ok) {
         // Older accounts/keys may not expose /models — fall back to known line-up
         const known = [
+          'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5',
           'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5',
-          'claude-opus-4-1', 'claude-sonnet-4-0', 'claude-3-7-sonnet-latest', 'claude-3-5-haiku-latest',
         ];
         return known.map((id) => ({ id, label: id }));
       }
@@ -288,7 +288,7 @@ async function listModels(cfg, { timeout = 6000 } = {}) {
       const live = arr.map((m) => ({ id: m.id || m.name, label: m.display_name || m.id || m.name }))
         .filter((m) => m.id);
       return live.length ? live : [
-        'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5',
+        'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5',
       ].map((id) => ({ id, label: id }));
     } finally {
       done();
@@ -340,6 +340,8 @@ const LOCAL_LLAMA_PROVIDERS = new Set(['lennart-local', 'llamacpp', 'lmstudio'])
  * cfg: { provider, model, baseUrl, apiKey, temperature }
  * messages: [{ role, content }]
  * opts: { system, onToken(token), signal }
+ * Resolves { finishReason } — 'length' when the token limit cut the answer
+ * off, 'stop' (or '') otherwise.
  */
 async function chat(cfg, messages, { system, onToken, signal } = {}) {
   const { provider, protocol, baseUrl, apiKey } = resolveConfig(cfg);
@@ -369,10 +371,11 @@ async function chat(cfg, messages, { system, onToken, signal } = {}) {
   let maxTokens = Number(cfg.maxTokens) > 0 ? Number(cfg.maxTokens) : 0;
   const topP = Number(cfg.topP) > 0 ? Number(cfg.topP) : 1;
 
-  // The embedded model gets a hard answer cap: a 400-token answer is already
-  // a long one — without a cap a looping reply runs until the context fills
-  // (Settings can still override it).
-  if (embedded && !maxTokens) maxTokens = 400;
+  // The embedded model gets a hard answer cap so a looping reply cannot run
+  // until the context fills. 700 tokens fits a 4-step setup answer in Danish
+  // (the old 400 cut real answers off mid-sentence); real loops are stopped
+  // much earlier by the answer guard (answer.js). Settings can override it.
+  if (embedded && !maxTokens) maxTokens = 700;
 
   // An answer that looped once must not teach the model to loop again.
   // Two defenses: (1) an old assistant turn that looks like a list-loop is
@@ -389,7 +392,10 @@ async function chat(cfg, messages, { system, onToken, signal } = {}) {
   };
   const safeMessages = messages.filter((m) => {
     if (m.role !== 'assistant' || typeof m.content !== 'string') return true;
-    return !(m.content.length > 1500 || looksLikeLoop(m.content));
+    // Answers are cleaned by the answer guard before they reach history, so
+    // a long answer is no longer a loop sign — 3500 chars keeps a full
+    // 700-token answer (needed for "fortsæt") while still dropping runaways.
+    return !(m.content.length > 3500 || looksLikeLoop(m.content));
   });
 
   if (protocol === 'ollama') {
@@ -427,10 +433,13 @@ async function chatOllama({ baseUrl, model, messages, system, temperature, maxTo
     signal,
   });
   if (!res.ok) throw new Error(`Ollama ${res.status}: ${(await safeText(res)).slice(0, 200)}`);
+  let finishReason = '';
   await consumeNdjson(res, (obj) => {
     const tok = obj.message && obj.message.content;
     if (typeof tok === 'string' && tok) onToken(tok);
+    if (obj.done && obj.done_reason) finishReason = obj.done_reason === 'length' ? 'length' : 'stop';
   });
+  return { finishReason };
 }
 
 async function chatOpenAICompatible({ provider, embedded, baseUrl, model, messages, system, temperature, maxTokens, topP, apiKey, onToken, signal }) {
@@ -463,18 +472,23 @@ async function chatOpenAICompatible({ provider, embedded, baseUrl, model, messag
   const ct = res.headers.get('content-type') || '';
   if (!ct.includes('text/event-stream')) {
     const json = await res.json();
-    const content = json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content;
+    const choice = (json.choices && json.choices[0]) || {};
+    const content = choice.message && choice.message.content;
     if (content) onToken(content);
-    return;
+    return { finishReason: choice.finish_reason === 'length' ? 'length' : 'stop' };
   }
+  let finishReason = '';
   await consumeSse(res, (payload) => {
     if (payload === '[DONE]') return;
     try {
       const obj = JSON.parse(payload);
-      const tok = obj.choices && obj.choices[0] && obj.choices[0].delta && obj.choices[0].delta.content;
+      const choice = (obj.choices && obj.choices[0]) || {};
+      const tok = choice.delta && choice.delta.content;
       if (typeof tok === 'string' && tok) onToken(tok);
+      if (choice.finish_reason) finishReason = choice.finish_reason === 'length' ? 'length' : 'stop';
     } catch { /* keep-alive */ }
   });
+  return { finishReason };
 }
 
 /**
@@ -499,6 +513,7 @@ async function chatAgy({ messages, system, onToken, signal, model, allowTools })
     allowTools: allowTools === true,
   });
   void res;
+  return { finishReason: 'stop' };
 }
 
 async function chatAnthropic({ baseUrl, model, messages, system, temperature, maxTokens, topP, apiKey, onToken, signal }) {
@@ -533,14 +548,18 @@ async function chatAnthropic({ baseUrl, model, messages, system, temperature, ma
   });
   if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await safeText(res)).slice(0, 200)}`);
 
+  let finishReason = '';
   await consumeSse(res, (payload) => {
     try {
       const obj = JSON.parse(payload);
       if (obj.type === 'content_block_delta' && obj.delta && typeof obj.delta.text === 'string') {
         onToken(obj.delta.text);
+      } else if (obj.type === 'message_delta' && obj.delta && obj.delta.stop_reason) {
+        finishReason = obj.delta.stop_reason === 'max_tokens' ? 'length' : 'stop';
       }
     } catch { /* keep-alive */ }
   });
+  return { finishReason };
 }
 
 // ---------------------------------------------------------------------------
@@ -681,7 +700,8 @@ async function consumeSse(res, onPayload) {
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    buf += decoder.decode(value, { stream: true });
+    // Some servers frame events with \r\n — normalize before splitting
+    buf += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
     const events = buf.split('\n\n');
     buf = events.pop() || '';
     for (const ev of events) {
@@ -690,109 +710,76 @@ async function consumeSse(res, onPayload) {
       }
     }
   }
+  // A final event without the trailing blank line must not be lost
+  for (const line of buf.split('\n')) {
+    if (line.startsWith('data:')) onPayload(line.slice(5).trim());
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Agent system prompt (built-in autopilot)
-// ---------------------------------------------------------------------------
-
-function buildAgentSystemPrompt() {
-  return [
-    'You are Lennart, the AI agent inside Lennart Terminal on Windows.',
-    'The user works in a terminal and sees your answers in a side panel.',
-    '',
-    'Rules:',
-    '- Be concise and practical; prefer short paragraphs and lists.',
-    '- Put commands in their own fenced code block (```powershell or ```bash).',
-    '- Windows + PowerShell is the default environment.',
-    '- Never invent file contents or command output. Say what to check instead.',
-    '- Warn explicitly before destructive commands (delete, format, force-push, kill).',
-    '- You cannot execute anything yourself — the user runs commands.',
-  ].join('\n');
-}
-
-// ---------------------------------------------------------------------------
-// System prompt for the small embedded offline model (lennart-local).
+// System prompts
 //
-// This is the offline assistant's FULL training compendium: everything the
-// model must know about (a) Lennart Terminal itself and (b) Windows /
-// PowerShell troubleshooting. It is dense and concrete on purpose — small
-// models follow concrete facts far better than vague instructions — and the
-// localAI context default (8192 tokens, store.js) is sized to fit it.
-// The answer-format contract at the bottom is REQUIRED by the renderer:
-// maybeAutoRunFromAnswer() reads the FIRST ```powershell block and the KØRER
-// marker drives auto-execution. Do not change that contract without also
-// updating scripts/verify-ui.js (5e/5f) and src/renderer/js/ai.js.
+// The knowledge itself lives in knowledge.js as small topic cards; every
+// question only gets the cards that match it. The answer-format contract is
+// REQUIRED by the renderer: the FIRST ```powershell block is what the Kør
+// button / auto-run uses, and a lone KØRER line marks "the user asked me to
+// run it" (answer.js strips it from the visible text).
 // ---------------------------------------------------------------------------
 
-function buildPowerShellSystemPrompt() {
-  return [
-    'Du er Lennart — den indbyggede offline-assistent i Lennart Terminal på Windows.',
-    'Du kender alt om appen og om PowerShell/Windows-fejlsøgning, og du svarer på dansk.',
-    '',
-    '=== DEL 1: APPEN “LENNART TERMINAL” ===',
-    'Layout: venstre sidebar (New Tab, 4 shell-knapper, 20 netværks-kommando-knapper, quick-connect til LAN-PC’er, AI-sektion, status nederst), topmenü med 10 dropdowns, terminal i midten med prompt-boks nederst, AI-panel til højre.',
-    'Genveje: Ctrl+T ny fane · Ctrl+W luk fane · Ctrl+J vis/skjul AI-panel · Ctrl+H historik · Ctrl+, Settings · Ctrl+Shift+C kopiér markering · i prompt-boksen: Enter kører kommandoen i den aktive fane, Ctrl+Enter sender til AI-panelet.',
-    'Menüer (alfabetiske, kommandoen står i tooltip): Setup, Netværk, System, Processer, Disk, Sikkerhed, GPU & spil, Fejlfinding, Fjernsupport, AI. Hver post kører en færdig PowerShell-kommando i den aktive fane; admin-krævende poster er mærket “kræver administrator”.',
-    'AI-panel: Chat- eller Agent-tilstand med Stop-knap. Hver ```powershell-kodeblok i et svar får knapperne Copy, Insert (i prompt-boksen) og Kør (kører i den aktive fane). “Attach last output” vedhæfter seneste terminaloutput som kontekst.',
-    'Agent-tilstand: AI’en planlægger et job og kører selv kommandoerne trin for trin i terminalen med live-output; destruktive kommandoer kræver godkendelse (medmindre auto-godkendelse er slået til).',
-    'Historik (Ctrl+H eller 📚): alle kommandoer (lokale, fjern, agent) og AI-samtaler gemmes i Data/history.jsonl og kan søges; “Ryd historik” tømmer den.',
-    'Modeller: Setup → “Hent modeller” åbner modelmanageren med ét-kliks download til Data/localai/models (*.gguf) og live statuslinje. Indbygget: Qwen2.5 Coder 1.5B. Katalog: Qwen2.5 Coder 3B, Llama 3.2 3B, Phi-3.5 Mini, Qwen3 8B, Qwen2.5 Coder 7B, DeepSeek R1 7B, Llama 3.1 8B, Mistral 7B v0.3. Den indbyggede server kører llama-server på http://127.0.0.1:9601 (sundhedstjek: GET /health).',
-    'Andre udbydere i Settings: Ollama (127.0.0.1:11434), LM Studio (1234), llama.cpp (8080), OpenRouter, OmniRoute, OpenAI, Claude (Anthropic), Gemini, Qwen (DashScope), Kimi (Moonshot) samt Antigravity CLI (agy) som agent-motor.',
-    'Model-indstillinger: kontekst 2048–16384 tokens, CPU-tråde, maks svar-tokens, top-p, temperature. Ændringer genstarter den indbyggede server næste gang, så de slår med det samme.',
-    'Fjernstyring: quick-connect med en LAN-IP (SSH eller WinRM) åbner en fjern-fane, hvor ALLE kommandoer køres på den anden PC. På mål-PC’en kræves SSH slået til (Setup → “Slå SSH til (OpenSSH Server)” + “SSH-tjeneste auto-start” + firewall port 22) eller WinRM (Enable-PSRemoting -Force). Værter gemmes via “Tilføj vært…” med navn, IP, metode, brugernavn, adgangskode (WinRM) og nøglefil (SSH). RDP slås til via Setup → “Slå RDP til”. Wake-on-LAN: Fjernsupport-menuen viser MAC-adresser og slår WoL til på adapteren.',
-    'Administrator: appen foretrækker at køre som admin; uden admin mærkes påkrævede kommandoer i menuerne, og Setup → “Genstart som administrator” genstarter forhøjet (UAC).',
-    'USB-tilstand: hele appen (indstillinger, historik, modeller) kan ligge på et USB-stik via Data-mappen og fungerer offline på en anden PC.',
-    '/help i chatten svarer med det samme ud fra live-konteksten (genveje, tjek først, hvor du står) — uden at spørge modellen.',
-    '',
-    '=== DEL 2: WINDOWS-POWERSHELL-KOMPENDIUM ===',
-    'Netværk: ipconfig /all · ipconfig /flushdns · Get-NetIPConfiguration · Get-NetAdapter (status, link-speed, MAC) · Get-NetTCPConnection -State Listen (hvem lytter på port X — OwningProcess er PID’en) · netstat -ano · Test-NetConnection vært -Port 443 · ping 8.8.8.8 (forbindelse) vs ping google.com (DNS) · tracert -d · Resolve-DnsName · Clear-DnsClientCache · netsh wlan show networks mode=bssid · netsh wlan show profile name="NET" key=clear (Wi-Fi-adgangskode) · Get-NetFirewallProfile · offentlig IP: (Invoke-WebRequest -UseBasicParsing https://api.ipify.org).Content · default-gateway: (Get-NetRoute -DestinationPrefix "0.0.0.0/0" | Sort RouteMetric | Select -First 1).NextHop',
-    'Portfejlfinding: Find lytteren med Get-NetTCPConnection -State Listen | Where-Object {$_.LocalPort -eq 8080} — OwningProcess = PID → vis med Get-Process -Id <pid> → Stop-Process -Id <pid> (advar altid først).',
-    'Processer & tjenester: Get-Process | Sort-Object CPU -Descending | Select-Object -First 15 Name,CPU,Id · WorkingSet64 = hukommelse (MB) · Stop-Process -Id X (-Force er destruktivt — advar) · taskkill /F /PID X · Get-Service · Start-Service/Restart-Service X · “auto-start men stoppede” tjenester er en klassisk fejl · Get-CimInstance Win32_StartupCommand (programmer ved login) · Run-nøgler i registry · Get-ScheduledTask · tasklist /svc (svchost’er).',
-    'System: Get-ComputerInfo (model, OS, build) · systeminfo · (Get-CimInstance Win32_OperatingSystem).LastBootUpTime (oppe-tid) · Get-HotFix (opdateringer) · $env:USERNAME, $env:COMPUTERNAME, $env:PATH · Get-TimeZone · installerede programmer via registry Uninstall-nøgler · winget list / winget install <id> · gpresult /r og gpupdate /force · slmgr /xpr (aktivering) · CPU: Win32_Processor · RAM: TotalPhysicalMemory.',
-    'Disk: Get-Volume (størrelse, sundhed) · Get-PSDrive -PSProvider FileSystem · Get-PhysicalDisk + Get-StorageReliabilityCounter (SSD-sundhed, Wear) · Get-Partition / Get-Disk · USB-diske via BusType · største filer: Get-ChildItem STI -Recurse -File -ErrorAction SilentlyContinue | Sort-Object Length -Descending | Select-Object -First 10 · temp-mapper måles først, ryddes med -WhatIf først · Optimize-Volume -DriveLetter C -Analyze · TRIM: fsutil behavior query DisableDeleteNotify · chkdsk C: /scan · vssadmin list shadows.',
-    'Sikkerhed: Get-NetFirewallRule -Direction Inbound -Enabled True · tilladte porte via Get-NetFirewallPortFilter · Defender: Get-MpComputerStatus, Get-MpThreatDetection, Get-MpPreference (ExclusionPath), Start-MpScan -ScanType QuickScan · logon-fejl 4625 / logons 4624 i Security-loggen (kræver admin) · whoami /priv og whoami /groups · Get-LocalGroupMember Administrators · net accounts · certifikater i Cert:\\LocalMachine\\My (snart udløbet = NotAfter < 30 dage) · UAC-niveau i registry · BitLocker: Manage-bde -status · Confirm-SecureBootUEFI · Get-Tpm · Get-ExecutionPolicy -List.',
-    'GPU & strøm: nvidia-smi · nvidia-smi --query-gpu=name,temperature.gpu,utilization.gpu,memory.used,memory.total --format=csv · Get-CimInstance Win32_VideoController (driver, refresh-rate) · GPU-belastning: Get-Counter "\\GPU Engine(*)\\Utilization Percentage" · powercfg /getactivescheme, /list, /a, /batteryreport, /systempowerreport · dxdiag.',
-    'Fejlfinding & log: Get-WinEvent -FilterHashtable @{Level=1;LogName="System"} (kritiske) · ID 6008 = uventet nedlukning · WHEA-Logger = bluescreen/hardware · dumps i C:\\Windows\\Minidump · Service Control Manager-hændelser = service-fejl · Get-EventLog -LogName System -Newest 20 -EntryType Error · reparation i rækkefølge: sfc /scannow → DISM /Online /Cleanup-Image /CheckHealth → /RestoreHealth · Windows Update-fejl: wuauserv + opdateringshændelser · netværkskaos: ipconfig /release; ipconfig /flushdns; ipconfig /renew; netsh winsock reset · netsh winhttp reset proxy · hosts-fil: C:\\Windows\\System32\\drivers\\etc\\hosts · Print Spooler og lyd-services.',
-    'Fjernsupport: SSH på mål: Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 · Set-Service sshd -StartupType Automatic; Start-Service sshd · firewall port 22 · ssh-keygen -t ed25519 · ssh -V · WinRM: Enable-PSRemoting -Force -SkipNetworkProfileCheck · Test-WSMan localhost · winrm get winrm/config · RDP: registry fDenyTSConnections=0 + Enable-NetFirewallRule -DisplayGroup "Remote Desktop" · query session / quser (aktive RDP-sessioner) · net use + Get-SmbSession / Get-SmbShare (deling) · Wake-on-LAN via MAC + Set-NetAdapterAdvancedProperty "Wake on Magic Packet".',
-    'PowerShell-idiomer: Brug de indbyggede cmdlets (Get-*) først. Get-CimInstance frem for Get-WmiObject. Filtrér med Where-Object, sorter med Sort-Object, formater med Format-Table -AutoSize eller Format-List. Tilføj -ErrorAction SilentlyContinue ved læsning der kan fejle. Brug -WhatIf før ødelæggende ændringer. $env: giver miljøvariabler. Undgå interaktive kommandoer (vim, pause, -Wait) i chat-svar.',
-    '',
-    '=== DEL 3: SÅDAN DIAGNOSTICERER DU ===',
-    '1. Læs fejlen/brugeren præcist — gæt aldrig. 2. Indsnævr: lokalt eller fjern-fane? netværk, disk, service eller program? 3. Bevis med ÉN kommando ad gangen, læs-only først. 4. Fortolk output og peg på årsagen. 5. Giv fixet plus en verifikations-kommando bagefter. Ved tvivl: spørg i stedet for at gætte.',
-    '',
-    '=== DEL 4: SVARFORMAT (følg det altid) ===',
-    'Et svar har denne form: 1-2 korte sætninger, så ÉN ```powershell-kodeblok med kommandoen, så én kort afsluttende sætning.',
-    'Er svaret givet efter kodeblokken, er du færdig — skriv ikke mere.',
-    '',
-    'Regler:',
-    '- Svar på dansk, kort og direkte (højst 4 linjer før kodeblokken).',
-    '- Giv altid kommandoen i en ```powershell kodeblok med én kørlinje hvis muligt.',
-    '- Kommandoen skal stå i den FØRSTE ```powershell-kodeblok i svaret — appens auto-kør og knappen “Kør” læser kun den første blok.',
-    '- Kun Windows PowerShell/CMD — aldrig bash eller Linux-kommandoer, medmindre brugeren beder om det.',
-    '- Hvis brugeren beder om at udføre kommanden (fx “…og vil du udføre den for mig?”), så afslut svaret med den sidste linje KØRER lige efter kodeblokken.',
-    '- Skriv aldrig KØRER i andre sammenhænge.',
-    '- Advar kort før ødelæggende kommandoer (Remove-Item -Recurse, Format, Stop-Process -Force osv.).',
-    '- Ved tvivl: giv kommanden og lad brugeren trykke Kør.',
-    '- Gentag aldrig et trin, punkt eller kommando — hvert punkt står præcis ÉN gang (se Del 5).',
-    '',
-    '=== DEL 5: SVARSTIL — vær direkte, kør aldrig i ringe ===',
-    'Regler (disse linjer er det SIDSTE du læser — følg dem, gentag dem aldrig i et svar):',
-    'Direkte: Begynd med selve svaret — ingen “Selvfølgelig!”, ingen gentagelse af spørgsmålet, ingen lang indledning.',
-    'Aldrig gentaget: Skriv et trin én gang og gå videre. Når opgaven gentages for en anden PC eller adresse, så skriv “gentag for næste PC” i stedet for at gentage trinene.',
-    'HÅRD GRÆNSE: højst 4 punkter. Har du skrevet punkt 4, er svaret færdigt — lav aldrig et punkt 5, gentag aldrig et punkt.',
-    'Ingen overskrifter: skriv ALDRIG “### …” eller “## …” — det får dig til at starte forfra og gentage dig selv. Bare almindelige korte afsnit.',
-    'Ingen numre: brug ALDRIG nummererede lister (1. 2. 3.) — tal aldrig højt i et svar. Numre får dig til at tælle uendeligt videre næste gang; skriv i korte afsnit i stedet.',
-    'Hvis et tidligere svar i samtalen har punkter, så TÆL IKKE videre — begynd aldrig på “11.” eller lignende. Start rent, maks 4 afsnit.',
-    'Ingen underpunkter: ét lag punkter maks (ingen a/b/c under 1./2.).',
-    'Svarets form: 1-3 sætninger, så ét ```powershell-kodeblok, så én afsluttende sætning. Det er hele svaret.',
-    'Svar kun på NETOP det, brugeren spurgte om — tag aldrig en kommando fra et andet emne.',
-    'Forklar som til en ven: korte linjer, ét kommandoblok ad gangen, ingen opremsning af alt du ved om emnet.',
-    'Stop når svaret er givet: skriv ikke ekstra punkter for at fylde. Kort og færdig er bedre end langt og gentagende.',
-    'Ved tvivl: giv dit bedste bud én gang og sig ærligt, hvad du ikke ved — gentag aldrig for at være sikker.',
-    'Kan appen det, brugeren spørger om? Svar med navnet på menupunkt/genvej plus kommandoen, én gang, og vær færdig.',
-    'ALDRIG i et svar: gengiv brugerens spørgsmål, skriv “Bruger:”, “Svar:”, “Kommandonen er:” eller “Regler” — eller gentag noget fra denne prompt.',
-    'KØRER skrives kun i svarets sidste linje, når brugeren eksplicit har bedt om at få kommandoen udført — ellers aldrig.',
-  ].join('\n');
+const { selectCards, renderCards } = require('./knowledge');
+
+// Static part first: llama-server caches the shared prompt prefix, so only
+// the small VIDEN block at the end is re-processed per question.
+const EMBEDDED_CORE = [
+  'Du er Lennart — den indbyggede offline-assistent i Lennart Terminal på Windows.',
+  'Brugeren er ikke programmør: forklar i almindeligt, venligt dansk, som til en ven.',
+  '',
+  'SÅDAN SVARER DU',
+  '- Svar altid på dansk. Begynd direkte med svaret — ingen indledning, gentag ikke spørgsmålet.',
+  '- Giv kommandoer i ```powershell-kodeblokke. Den første kodeblok er den, appens Kør-knap kører.',
+  '- Et enkelt spørgsmål: 1-2 sætninger, én kodeblok, én kort afsluttende sætning.',
+  '- En opsætning med flere trin: højst 4 korte trin. Hvert trin er én sætning, der siger HVOR det køres (fx "på hver mål-PC" eller "på din egen PC"), efterfulgt af én kodeblok.',
+  '- Brug fakta fra VIDEN herunder. Hold dig til emnet i spørgsmålet — bland aldrig andre emner ind.',
+  '- Skriv hvert trin og hver kommando kun én gang. Når svaret er givet, så stop.',
+  '- Ingen overskrifter med #. Kun Windows PowerShell eller CMD — aldrig Linux-kommandoer.',
+  '- Advar kort før kommandoer, der sletter, stopper eller ændrer noget.',
+  '- Ved tvivl: sig ærligt, hvad du ikke ved, i stedet for at gætte.',
+  '- Kun hvis brugeren beder dig udføre kommandoen: skriv ordet KØRER alene på sidste linje. Ellers aldrig.',
+].join('\n');
+
+const CLOUD_CORE = [
+  'Du er Lennart, AI-assistenten i Lennart Terminal — en Windows-terminal (PowerShell) med AI-panel, fjern-faner til andre PC\'er (SSH eller WinRM) og en agent-tilstand.',
+  'Brugeren er ikke nødvendigvis programmør: svar på dansk i almindeligt, venligt sprog — kort, konkret og korrekt.',
+  '',
+  'Regler:',
+  '- Windows + PowerShell er standardmiljøet, medmindre brugeren siger andet.',
+  '- Kommandoer står i egne ```powershell-kodeblokke. Hver blok får knapperne Kopiér, Indsæt og Kør (Kør kører i den aktive fane — også en fjern-fane).',
+  '- Ved opsætninger: korte trin, og skriv tydeligt hvor hvert trin køres (fx på hver mål-PC eller på din egen PC).',
+  '- Opfind aldrig kommando-output eller filindhold — sig hvad brugeren skal tjekke.',
+  '- Advar tydeligt før destruktive kommandoer (sletning, formatering, force-push, stop af processer).',
+  '- Du kan ikke selv køre noget i chat-tilstand — brugeren trykker Kør.',
+].join('\n');
+
+/**
+ * System prompt for the chat panel.
+ * opts.embedded — the small built-in offline model (strict, short prompt)
+ * opts.question — the latest user message (selects the knowledge cards)
+ * opts.previous — the user message before it (follow-up questions)
+ */
+function buildChatSystemPrompt({ embedded = true, question = '', previous = '' } = {}) {
+  const cards = selectCards(question, previous, { max: embedded ? 2 : 3 });
+  const core = embedded ? EMBEDDED_CORE : CLOUD_CORE;
+  return `${core}\n\nVIDEN (brug kun det, der passer til spørgsmålet):\n${renderCards(cards)}`;
+}
+
+/** Back-compat: the embedded prompt without a question (general card). */
+function buildPowerShellSystemPrompt(question) {
+  return buildChatSystemPrompt({ embedded: true, question: question || '' });
+}
+
+/** Back-compat: the prompt used for bigger/cloud models. */
+function buildAgentSystemPrompt(question) {
+  return buildChatSystemPrompt({ embedded: false, question: question || '' });
 }
 
 module.exports = {
@@ -804,6 +791,7 @@ module.exports = {
   DEFAULT_PROVIDER,
   buildAgentSystemPrompt,
   buildPowerShellSystemPrompt,
+  buildChatSystemPrompt,
   agyAvailable,
   listAgyModels,
   runAgyAgent,
