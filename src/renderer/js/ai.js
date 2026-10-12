@@ -42,6 +42,10 @@ function initAiPanel() {
     }
   });
 
+  // Feltet vokser med teksten (op til ~6 linjer) — lange beskeder kan læses
+  // uden at panelet bliver dækket, og feltet krymper igen når der tømmes.
+  aiEls.input.addEventListener('input', autoGrowInput);
+
   // Stop auto-scrolling when the user scrolls up to read;
   // resume following the stream when they return to the bottom
   aiEls.messages.addEventListener('scroll', () => {
@@ -130,11 +134,22 @@ function onAiSubmit(e) {
     startAgentJob(text);
   } else if (!aiState.streaming) {
     aiEls.input.value = '';
-    aiEls.input.style.height = 'auto';
+    autoGrowInput();
     aiState.messages.push({ role: 'user', content: text });
     appendMessageEl('user', text);
     startStream();
   }
+}
+
+/**
+ * Hold composeren mellem 2 og 6 linjer: vokser med teksten, stopper ved
+ * max-height (132px i CSS'en) hvorefter den ruller i stedet.
+ */
+function autoGrowInput() {
+  const el = aiEls.input;
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = `${Math.min(el.scrollHeight, 132)}px`;
 }
 
 // ---------------------------------------------------------------------------
@@ -233,7 +248,7 @@ async function localHelpMarkdown(err) {
 async function showLocalHelp(text) {
   const label = text || '/help';
   aiEls.input.value = '';
-  aiEls.input.style.height = 'auto';
+  autoGrowInput();
   if (aiState.streaming) return;
   aiState.messages.push({ role: 'user', content: label });
   appendMessageEl('user', label);

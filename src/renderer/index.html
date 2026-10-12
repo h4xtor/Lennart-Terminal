@@ -125,12 +125,14 @@
           <div id="ai-messages"></div>
           <div id="ai-suggestions"></div>
           <form id="ai-composer">
-            <textarea id="ai-input" rows="2" placeholder="Spørg AI-en … (Enter = send · skriv /help for hjælp og fejlsøgning)"></textarea>
-            <div class="ai-composer-row">
-              <button type="button" id="btn-send-terminal" title="Send last terminal output as context">Attach last output</button>
-              <span class="spacer"></span>
-              <button type="button" id="btn-ai-stop" title="Stop generating" hidden>Stop</button>
-              <button type="submit" id="btn-ai-send">Send</button>
+            <div class="composer-card">
+              <textarea id="ai-input" rows="2" placeholder="Spørg AI-en … (Enter = send · skriv /help for hjælp og fejlsøgning)"></textarea>
+              <div class="ai-composer-row">
+                <button type="button" id="btn-send-terminal" title="Vedhæft seneste terminaloutput som kontekst til dit spørgsmål">📎 Vedhæft output</button>
+                <span class="spacer"></span>
+                <button type="button" id="btn-ai-stop" title="Stop generering" hidden>■ Stop</button>
+                <button type="submit" id="btn-ai-send" title="Send til AI (Enter)">↑</button>
+              </div>
             </div>
           </form>
         </section>
