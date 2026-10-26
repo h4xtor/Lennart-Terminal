@@ -60,14 +60,29 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $files = Get-ChildItem dist -File | Where-Object { $_.Name -match '\.(exe|zip)$' } | ForEach-Object { $_.FullName }
-          if (-not $files) { throw 'electron-builder produced no .exe/.zip' }
+          $built = Get-ChildItem dist -File | Where-Object { $_.Name -match '\.(exe|zip)$' }
+          if (-not $built) { throw 'electron-builder produced no .exe/.zip' }
+          # Version-less copies give a link that ALWAYS points at the newest
+          # build: /releases/latest/download/LennartTerminal-portable.exe
+          $exe = $built | Where-Object { $_.Name -like '*-portable.exe' } | Select-Object -First 1
+          $zip = $built | Where-Object { $_.Name -like '*-win-x64.zip' } | Select-Object -First 1
+          if (-not $exe -or -not $zip) { throw 'portable .exe or win-x64 .zip missing' }
+          Copy-Item $exe.FullName (Join-Path dist 'LennartTerminal-portable.exe')
+          Copy-Item $zip.FullName (Join-Path dist 'LennartTerminal-win-x64.zip')
+          # SHA-256 checksums so anyone can verify the download is untouched
+          $all = Get-ChildItem dist -File | Where-Object { $_.Name -match '\.(exe|zip)$' }
+          $all | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name } |
+            Set-Content -Path (Join-Path dist 'SHA256SUMS.txt') -Encoding ascii
+          $files = @($all.FullName) + (Join-Path dist 'SHA256SUMS.txt')
           $notes = @"
           **Lennart Terminal ${{ steps.ver.outputs.tag }}**
 
-          **Download one of these (Windows 10/11, 64-bit — nothing to install):**
-          - ``LennartTerminal-*-portable.exe`` — one single file. Double-click it. A ``Data`` folder (settings, history, offline AI) is created next to it, so it works from a USB stick.
-          - ``LennartTerminal-*-win-x64.zip`` — unzip anywhere and double-click ``Lennart Terminal.exe`` (starts a bit faster than the single file).
+          **Download (Windows 10/11, 64-bit — nothing to install):**
+          - **``LennartTerminal-portable.exe``** — one single file. Double-click it. A ``Data`` folder (settings, history, offline AI) is created next to it, so it works from a USB stick.
+          - ``LennartTerminal-win-x64.zip`` — unzip anywhere and double-click ``Lennart Terminal.exe`` (starts a bit faster than the single file).
+          - The same files with the version number in the name are attached too. ``SHA256SUMS.txt`` lets you verify a download: ``Get-FileHash .\LennartTerminal-portable.exe``
+
+          **"Windows protected your PC"?** The EXE is not code-signed yet. Click **More info → Run anyway**. The full source code is in this repository and every release is built by GitHub Actions straight from it.
 
           AI providers are configured in the app under Settings (Ctrl+,). See the [README](https://github.com/$env:GITHUB_REPOSITORY#readme).
           "@

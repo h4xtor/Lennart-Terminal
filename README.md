@@ -1,8 +1,16 @@
 # Lennart Terminal
 
-A AI-inspired terminal for Windows with an integrated **AI agent** — chat with your terminal, or let the AI take over and run a whole job for you.
+An AI-powered terminal for Windows with an integrated **AI agent** — chat with your terminal, or let the AI take over and run a whole job for you.
 
 [![CI](https://github.com/h4xtor/Lennart-Terminal/actions/workflows/ci.yml/badge.svg)](https://github.com/h4xtor/Lennart-Terminal/actions/workflows/ci.yml) ![platform](https://img.shields.io/badge/platform-Windows-blue) ![license](https://img.shields.io/badge/license-MIT-green)
+
+## ⬇️ Download
+
+**[Download Lennart Terminal for Windows (.exe)](https://github.com/h4xtor/Lennart-Terminal/releases/latest/download/LennartTerminal-portable.exe)** — always the newest version, one file, nothing to install (Windows 10/11, 64-bit).
+
+Prefer a folder? [Download the zip](https://github.com/h4xtor/Lennart-Terminal/releases/latest/download/LennartTerminal-win-x64.zip) · [All releases & checksums](https://github.com/h4xtor/Lennart-Terminal/releases)
+
+> **"Windows protected your PC"?** The EXE is not code-signed yet, so Windows SmartScreen does not know it. Click **More info → Run anyway**. Every release is built by GitHub Actions directly from the source code in this repository, and `SHA256SUMS.txt` on the release page lets you verify the file.
 
 ## Features
 
@@ -23,10 +31,8 @@ A AI-inspired terminal for Windows with an integrated **AI agent** — chat with
 
 ### Option A — EXE (nothing to install)
 
-Grab one of these from the [latest release](https://github.com/h4xtor/Lennart-Terminal/releases/latest):
-
-- **`LennartTerminal-<version>-portable.exe`** — one single file, just double-click it
-- **`LennartTerminal-<version>-win-x64.zip`** — unzip anywhere and double-click **`Lennart Terminal.exe`** (starts a little faster)
+- **[LennartTerminal-portable.exe](https://github.com/h4xtor/Lennart-Terminal/releases/latest/download/LennartTerminal-portable.exe)** — one single file, just double-click it
+- **[LennartTerminal-win-x64.zip](https://github.com/h4xtor/Lennart-Terminal/releases/latest/download/LennartTerminal-win-x64.zip)** — unzip anywhere and double-click **`Lennart Terminal.exe`** (starts a little faster)
 
 Both are portable: a `Data` folder (settings, hosts, history, offline AI) is created next to the program, so it works straight from a USB stick. No Node.js, no installer.
 
