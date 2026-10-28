@@ -69,6 +69,17 @@ Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service ssh
 
 Commands are sent as a base64 `-EncodedCommand`, so `$variables` and `|` reach PowerShell intact instead of being expanded by the remote shell. SSH only: a Linux/macOS target works too — install PowerShell 7 (`pwsh`) and make `powershell.exe` resolve to it (`sudo ln -s "$(command -v pwsh)" /usr/local/bin/powershell.exe`). WinRM is Windows-only.
 
+**Linux Mint 22.x / Ubuntu 24.04:** use the Ubuntu 24.04 Microsoft feed explicitly — Mint reports `VERSION_ID=22.3`, so the usual `$VERSION_ID` snippet would request a non-existent `ubuntu/22.3` repo:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y wget apt-transport-https software-properties-common
+wget -q https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb
+sudo dpkg -i packages-microsoft-prod.deb && rm packages-microsoft-prod.deb
+sudo apt-get update && sudo apt-get install -y powershell
+sudo ln -sf /usr/bin/pwsh /usr/local/bin/powershell.exe
+```
+
 ## Connect an AI
 
 Open **Indstillinger (Ctrl+,)** → *AI & modeller* → press **↻** to load models → pick one → **Save**. The sidebar LED turns green when the endpoint answers.
