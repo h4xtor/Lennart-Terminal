@@ -68,7 +68,8 @@ function terminalThemeFor(preset, accent) {
 function applyTerminalTheme(preset, accent) {
   CURRENT_TERM_THEME = terminalThemeFor(preset, accent);
   for (const t of termTabs.values()) {
-    t.xterm?.setOptions({ theme: CURRENT_TERM_THEME });
+    // xterm 6 removed setOptions(); the theme is a live option on .options.
+    if (t.xterm && t.xterm.options) t.xterm.options.theme = CURRENT_TERM_THEME;
   }
 }
 
