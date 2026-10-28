@@ -8,6 +8,8 @@ An AI-powered terminal for Windows with an integrated **AI agent** — chat with
 
 **[Download Lennart Terminal for Windows (.exe)](https://github.com/h4xtor/Lennart-Terminal/releases/latest/download/LennartTerminal-portable.exe)** — always the newest version, one file, nothing to install (Windows 10/11, 64-bit).
 
+> Used GitHub's green **Code → Download ZIP** instead? That is the source code — just double-click **`start-lennart-terminal.cmd`** in it and it fetches the finished EXE once and starts it.
+
 Prefer a folder? [Download the zip](https://github.com/h4xtor/Lennart-Terminal/releases/latest/download/LennartTerminal-win-x64.zip) · [All releases & checksums](https://github.com/h4xtor/Lennart-Terminal/releases)
 
 > **"Windows protected your PC"?** The EXE is not code-signed yet, so Windows SmartScreen does not know it. Click **More info → Run anyway**. Every release is built by GitHub Actions directly from the source code in this repository, and `SHA256SUMS.txt` on the release page lets you verify the file.
