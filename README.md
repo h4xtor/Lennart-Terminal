@@ -67,6 +67,8 @@ Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service ssh
 
 4. Click the host in the sidebar → a remote tab opens. Type commands in the bottom prompt box — they execute **on that PC**, stream output live, and land in the permanent history marked **Netværk**.
 
+Commands are sent as a base64 `-EncodedCommand`, so `$variables` and `|` reach PowerShell intact instead of being expanded by the remote shell. SSH only: a Linux/macOS target works too — install PowerShell 7 (`pwsh`) and make `powershell.exe` resolve to it (`sudo ln -s "$(command -v pwsh)" /usr/local/bin/powershell.exe`). WinRM is Windows-only.
+
 ## Connect an AI
 
 Open **Indstillinger (Ctrl+,)** → *AI & modeller* → press **↻** to load models → pick one → **Save**. The sidebar LED turns green when the endpoint answers.

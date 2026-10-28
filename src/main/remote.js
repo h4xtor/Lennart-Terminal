@@ -1,11 +1,12 @@
 'use strict';
 
 /**
- * Network execution: run commands on remote Windows PCs over the LAN.
+ * Network execution: run commands on remote machines over the LAN.
  *
  * Two transports:
- *  - ssh   (recommended): Windows OpenSSH client (`ssh user@host powershell …`),
- *          works with a key file for fully non-interactive runs.
+ *  - ssh   (recommended): OpenSSH (`ssh user@host powershell -EncodedCommand …`),
+ *          works with a key file and also reaches Linux/macOS hosts that have
+ *          PowerShell 7 exposed as `powershell.exe`.
  *  - winrm: PowerShell Remoting (`Invoke-Command … -Credential …`), requires
  *          WinRM to be enabled on the target. Password is passed via an
  *          EncodedCommand so it never scrolls by in the visible terminal.
@@ -42,10 +43,17 @@ function buildRemoteArgv(host, method, command, opts) {
     ].join('; ');
     return ['powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', b64Utf16(inner)]];
   }
-  // ssh (default) — key path optional; powershell on the remote renders the command
+  // ssh (default) — key path optional. The command is passed as a base64
+  // -EncodedCommand so the remote shell (bash on Linux, cmd on Windows) does
+  // not expand $variables or interpret pipes before PowerShell sees them.
+  // Linux/macOS: install PowerShell 7 and make `powershell.exe` resolve to
+  // pwsh (e.g. sudo ln -s "$(command -v pwsh)" /usr/local/bin/powershell.exe).
   const args = ['-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes'];
   if (o.keyPath) args.push('-i', o.keyPath);
-  args.push(o.username ? `${o.username}@${host}` : host, 'powershell.exe', '-NoLogo', '-NoProfile', '-Command', command);
+  args.push(
+    o.username ? `${o.username}@${host}` : host,
+    'powershell.exe', '-NoLogo', '-NoProfile', '-EncodedCommand', b64Utf16(command),
+  );
   return ['ssh.exe', args];
 }
 
@@ -123,7 +131,8 @@ class RemoteRunner {
 
   /** Quick reachability test for the add/edit host dialog. */
   test(hostCfg) {
-    return this.run(`test_${Date.now()}`, hostCfg, '$env:COMPUTERNAME', 15000);
+    // `hostname` works on Windows PowerShell and on PowerShell 7 for Linux.
+    return this.run(`test_${Date.now()}`, hostCfg, 'hostname', 15000);
   }
 }
 

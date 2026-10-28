@@ -14,16 +14,32 @@ async function testSshArgv() {
   assert.strictEqual(file, 'ssh.exe');
   assert.ok(args.includes('admin@192.168.1.50'));
   assert.ok(args.includes('C:\\k.pem'));
-  assert.ok(args.includes('Get-Date'));
+  assert.ok(!args.includes('Get-Date'), 'command is not passed raw to the remote shell');
+  const encIdx = args.indexOf('-EncodedCommand');
+  assert.ok(encIdx > 0, 'uses -EncodedCommand');
+  assert.strictEqual(Buffer.from(args[encIdx + 1], 'base64').toString('utf16le'), 'Get-Date');
   assert.ok(!args.some((a) => typeof a === 'string' && /password/i.test(a)), 'no password flags in ssh argv');
-  console.log('PASS ssh argv');
+  console.log('PASS ssh argv (encoded command)');
 }
 
 async function testSshArgvWithoutUser() {
   const [file, args] = buildRemoteArgv('pc12.local', 'ssh', 'hostname', {});
   assert.strictEqual(file, 'ssh.exe');
   assert.ok(args.includes('pc12.local'));
+  const encIdx = args.indexOf('-EncodedCommand');
+  assert.strictEqual(Buffer.from(args[encIdx + 1], 'base64').toString('utf16le'), 'hostname');
   console.log('PASS ssh argv without user');
+}
+
+async function testSshShellSpecialChars() {
+  // Linux/macOS remote shells (and cmd.exe on Windows) must not expand
+  // $variables or split on pipes before PowerShell receives the command.
+  const cmd = '$PSVersionTable.PSVersion | Out-String';
+  const [, args] = buildRemoteArgv('linux-box', 'ssh', cmd, {});
+  const encIdx = args.indexOf('-EncodedCommand');
+  assert.strictEqual(Buffer.from(args[encIdx + 1], 'base64').toString('utf16le'), cmd);
+  assert.ok(!args.includes(cmd), 'raw command never reaches the remote shell');
+  console.log('PASS ssh keeps $variables and pipes intact');
 }
 
 async function testWinrmArgv() {
@@ -65,6 +81,7 @@ async function testRunnerMissingSpawn() {
 async function main() {
   await testSshArgv();
   await testSshArgvWithoutUser();
+  await testSshShellSpecialChars();
   await testWinrmArgv();
   await testPsQuote();
   await testSshSetupCommand();
