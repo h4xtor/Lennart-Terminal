@@ -48,14 +48,14 @@ const COMMAND_MENUS = [
   // -------------------------------------------------------------------------
   {
     id: 'setup',
-    label: 'Setup',
+    label: 'Opsætning',
     items: [
-      { label: 'Åbn Settings', action: 'setup-settings' },
+      { label: 'Åbn indstillinger', action: 'setup-settings' },
       { label: 'Hent modeller (lokal AI)', action: 'setup-models' },
       { label: 'Farver & udseende', action: 'setup-colors' },
       { label: 'Genopfrisk modellisten', action: 'models-refresh' },
       { label: '/help — AI hjælper dig videre', action: 'ai-help' },
-      { label: 'SSH setup-kommando (kopier)', action: 'ssh-setup' },
+      { label: 'SSH-opsætningskommando (kopiér)', action: 'ssh-setup' },
       { label: 'Tilføj vært…', action: 'add-host' },
       { label: 'Test alle værter', action: 'test-hosts' },
       { label: 'Genstart som administrator', action: 'run-as-admin' },
@@ -290,7 +290,7 @@ const COMMAND_MENUS = [
       // in app.js; commands run in the active tab — on remote tabs they
       // execute on the remote host).
       { label: 'Forbind til IP (quick-connect)', action: 'remote-connect' },
-      { label: 'SSH setup-kommando (kopier)', action: 'ssh-setup' },
+      { label: 'SSH-opsætningskommando (kopiér)', action: 'ssh-setup' },
       { label: 'Tilføj vært…', action: 'add-host' },
       { label: 'Test alle værter', action: 'test-hosts' },
       { label: 'Åbn SSH-session med ssh', cmd: 'ssh' },

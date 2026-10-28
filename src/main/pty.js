@@ -16,13 +16,16 @@ const MAX_BUFFER = 40000; // chars kept per session for AI context
 
 function detectDefaultShell() {
   if (process.platform !== 'win32') return process.env.SHELL || 'bash';
-  for (const exe of ['pwsh.exe', 'powershell.exe']) {
-    try {
-      if (fs.existsSync(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', exe))) {
-        return exe.replace('.exe', '');
-      }
-    } catch { /* ignore */ }
-  }
+  if (findPwsh()) return 'pwsh';
+  try {
+    // Windows PowerShell lives under System32\WindowsPowerShell\v1.0 — not
+    // directly in System32. The old lookup therefore fell through to cmd on
+    // a perfectly normal Windows box.
+    if (fs.existsSync(path.join(
+      process.env.SystemRoot || 'C:\\Windows',
+      'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe',
+    ))) return 'powershell';
+  } catch { /* ignore */ }
   return 'cmd';
 }
 
@@ -37,13 +40,13 @@ function shellProfile(shell) {
     case 'pwsh':
       return {
         file: 'pwsh.exe',
-        name: 'PowerShell (Core)',
+        name: 'PowerShell 7',
         args: ['-NoLogo'],
       };
     case 'cmd':
       return {
         file: 'cmd.exe',
-        name: 'Command Prompt',
+        name: 'Kommandoprompt',
         args: [],
       };
     case 'gitbash':
@@ -72,6 +75,31 @@ function findGitBash() {
   });
 }
 
+/** Find an executable in PATH (used for pwsh installed outside Program Files). */
+function findOnPath(exe) {
+  const dirs = String(process.env.PATH || '').split(path.delimiter).filter(Boolean);
+  for (const dir of dirs) {
+    try {
+      const candidate = path.join(dir, exe);
+      if (fs.existsSync(candidate)) return candidate;
+    } catch { /* unreadable PATH entry */ }
+  }
+  return '';
+}
+
+/** PowerShell 7 can live in Program Files, the Store alias, or anywhere on PATH. */
+function findPwsh() {
+  if (process.platform !== 'win32') return findOnPath('pwsh');
+  const candidates = [
+    path.join(process.env.ProgramFiles || 'C:\\Program Files', 'PowerShell', '7', 'pwsh.exe'),
+    path.join(process.env.ProgramFiles || 'C:\\Program Files', 'PowerShell', '7-preview', 'pwsh.exe'),
+    path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'WindowsApps', 'pwsh.exe'),
+  ];
+  return candidates.find((c) => {
+    try { return fs.existsSync(c); } catch { return false; }
+  }) || findOnPath('pwsh.exe');
+}
+
 class TerminalManager extends EventEmitter {
   constructor() {
     super();
@@ -98,7 +126,7 @@ class TerminalManager extends EventEmitter {
     })();
     return {
       powershell: winPowerShell || sys32('powershell.exe'),
-      pwsh: fs.existsSync('C:\\Program Files\\PowerShell\\7\\pwsh.exe'),
+      pwsh: Boolean(findPwsh()),
       cmd: sys32('cmd.exe'),
       gitbash: Boolean(findGitBash()),
     };
@@ -113,16 +141,16 @@ class TerminalManager extends EventEmitter {
       if (gitBash) {
         file = gitBash;
       } else {
-        throw new Error('Git Bash not found — install Git for Windows or pick another shell');
+        throw new Error('Git Bash blev ikke fundet — installér Git til Windows, eller vælg en anden shell');
       }
     }
-    if (file === 'pwsh.exe' && !fs.existsSync('C:\\Program Files\\PowerShell\\7\\pwsh.exe')) {
-      throw new Error('PowerShell 7 (pwsh) not installed');
+    if (file === 'pwsh.exe' && !findPwsh()) {
+      throw new Error('PowerShell 7 (pwsh) er ikke installeret');
     }
 
     const resolvedCwd = cwd || os.homedir();
     const env = { ...process.env };
-    env.ELECTRON_RUN_AS_NODE = undefined;
+    delete env.ELECTRON_RUN_AS_NODE;
     env.TERM = 'xterm-256color';
     env.COLORTERM = 'truecolor';
     env.LENNART_TERMINAL = '1';

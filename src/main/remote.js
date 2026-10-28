@@ -79,6 +79,7 @@ class RemoteRunner {
     return new Promise((resolve) => {
       let out = '';
       let timedOut = false;
+      let settled = false;
       this.log(`remote: ${hostCfg.method || 'ssh'} ${hostCfg.host}: ${command.slice(0, 120)}`);
 
       let child;
@@ -94,6 +95,13 @@ class RemoteRunner {
         try { child.kill(); } catch { /* already dead */ }
       }, limit);
 
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(result);
+      };
+
       const onData = (chunk) => {
         const text = chunk.toString('utf8');
         out += text;
@@ -103,12 +111,12 @@ class RemoteRunner {
       child.stderr.on('data', onData);
 
       child.on('error', (err) => {
-        clearTimeout(timer);
-        resolve({ ok: false, code: -1, output: out + `\n[fejl: ${err.message}]`, timedOut });
+        finish({ ok: false, code: -1, output: out + `\n[fejl: ${err.message}]`, timedOut });
       });
-      child.on('exit', (code) => {
-        clearTimeout(timer);
-        resolve({ ok: !timedOut && code === 0, code: code === null ? -1 : code, output: out, timedOut });
+      // 'close' (not 'exit') guarantees stdout/stderr are fully drained, so
+      // the returned output and the permanent history do not miss the tail.
+      child.on('close', (code) => {
+        finish({ ok: !timedOut && code === 0, code: code === null ? -1 : code, output: out, timedOut });
       });
     });
   }

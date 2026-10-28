@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="da">
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
@@ -16,11 +16,11 @@
     </div>
     <div class="titlebar-actions">
       <button id="btn-history" class="tb-btn" title="Historik (Ctrl+H)">&#128218;</button>
-      <button id="btn-settings" class="tb-btn" title="Settings (Ctrl+,)">&#9881;</button>
-      <button id="btn-devtools" class="tb-btn" title="Toggle Developer Tools">&#128366;</button>
-      <button id="btn-minimize" class="tb-btn" title="Minimize">&#8211;</button>
-      <button id="btn-maximize" class="tb-btn" title="Maximize">&#9633;</button>
-      <button id="btn-close" class="tb-btn tb-close" title="Close">&#10005;</button>
+      <button id="btn-settings" class="tb-btn" title="Indstillinger (Ctrl+,)">&#9881;</button>
+      <button id="btn-devtools" class="tb-btn" title="Åbn/luk udviklerværktøjer">&#128366;</button>
+      <button id="btn-minimize" class="tb-btn" title="Minimér">&#8211;</button>
+      <button id="btn-maximize" class="tb-btn" title="Maksimér">&#9633;</button>
+      <button id="btn-close" class="tb-btn tb-close" title="Luk">&#10005;</button>
     </div>
   </div>
 
@@ -31,17 +31,17 @@
     <aside id="sidebar">
       <div class="side-section">
         <div class="side-label">Session</div>
-        <button id="btn-new-tab" class="side-btn primary" title="New terminal tab (Ctrl+T)">
-          <span class="ico">&#65291;</span> New Tab
+        <button id="btn-new-tab" class="side-btn primary" title="Ny terminalfane (Ctrl+T)">
+          <span class="ico">&#65291;</span> Ny fane
         </button>
       </div>
 
       <div class="side-section">
-        <div class="side-label">Shells</div>
+        <div class="side-label">Terminaler</div>
         <div class="btn-grid-2">
           <button class="side-btn shell-btn" data-shell="powershell">PowerShell</button>
           <button class="side-btn shell-btn" data-shell="pwsh">PowerShell 7</button>
-          <button class="side-btn shell-btn" data-shell="cmd">Command Prompt</button>
+          <button class="side-btn shell-btn" data-shell="cmd">Kommandoprompt</button>
           <button class="side-btn shell-btn" data-shell="gitbash">Git Bash</button>
         </div>
       </div>
@@ -54,7 +54,7 @@
       <div class="side-section">
         <div class="side-label">Netværk
           <span class="info-dot" tabindex="0"
-                title="Fjernsupport p&#229; LAN&#10;• Krav: begge PC'er p&#229; samme netv&#230;rk&#10;• SSH: sl&#229; til p&#229; m&#229;l-PC'en (Setup → “Sl&#229; SSH til” som admin) — eller WinRM: Enable-PSRemoting -Force&#10;• Tilf&#248;j v&#230;rt med brugernavn/adgangskode — eller skriv blot en IP her og tryk Forbind&#10;• Kommandoer i fjern-fanen k&#248;res p&#229; fjernv&#230;rten">i</span>
+                title="Fjernsupport p&#229; LAN&#10;• Krav: begge PC'er p&#229; samme netv&#230;rk&#10;• SSH: sl&#229; til p&#229; m&#229;l-PC'en (Opsætning → “Sl&#229; SSH til” som admin) — eller WinRM: Enable-PSRemoting -Force&#10;• Tilf&#248;j v&#230;rt med brugernavn/adgangskode — eller skriv blot en IP her og tryk Forbind&#10;• Kommandoer i fjern-fanen k&#248;res p&#229; fjernv&#230;rten">i</span>
         </div>
         <div class="quick-connect">
           <input id="quick-host-ip" type="text" spellcheck="false" placeholder="IP, fx 192.168.1.50" />
@@ -68,16 +68,16 @@
 
       <div class="side-section">
         <div class="side-label">AI</div>
-        <button id="btn-toggle-ai" class="side-btn" title="Show/hide AI panel (Ctrl+J)">
-          <span class="ico">&#10022;</span> AI Panel
+        <button id="btn-toggle-ai" class="side-btn" title="Vis/skjul AI-panel (Ctrl+J)">
+          <span class="ico">&#10022;</span> AI-panel
         </button>
-        <button id="btn-agent-mode" class="side-btn" title="Toggle agent system prompt">
-          <span class="ico">&#9679;</span> Agent Mode: <span id="agent-mode-state">On</span>
+        <button id="btn-agent-mode" class="side-btn" title="Slå agent-systemprompt til/fra">
+          <span class="ico">&#9679;</span> Agent-tilstand: <span id="agent-mode-state">Til</span>
         </button>
       </div>
 
       <div class="side-footer">
-        <div class="status-row"><span class="status-dot" id="ai-status-dot"></span><span id="ai-status-text">AI: checking…</span></div>
+        <div class="status-row"><span class="status-dot" id="ai-status-dot"></span><span id="ai-status-text">AI: tjekker…</span></div>
         <div class="status-row elev-row hidden" id="elev-row"
              title="Tryk for at genstart Lennart Terminal som administrator (UAC)">⚠ Kører uden administrator</div>
         <div class="status-row brand-row" id="brand-row">Lennart Terminal</div>
@@ -89,7 +89,7 @@
       <!-- Tab strip -->
       <div id="tabstrip">
         <div id="tabs"></div>
-        <button id="btn-new-tab-inline" title="New tab">+</button>
+        <button id="btn-new-tab-inline" title="Ny fane">+</button>
         <button id="btn-copy-term" title="Kopiér markeret tekst i terminalen (eller Ctrl+Shift+C / højreklik)">&#10697; Kopiér</button>
       </div>
 
@@ -103,12 +103,12 @@
             <div class="prompt-row">
               <span class="prompt-icon">&#10095;</span>
               <span class="prompt-field">
-                <span id="prompt-hint"><b>Ask AI (Ctrl+Enter)</b> or type a command…</span>
+                <span id="prompt-hint"><b>Spørg AI (Ctrl+Enter)</b> eller skriv en kommando…</span>
                 <input id="prompt-input" type="text" spellcheck="false" autocomplete="off"
-                       title="Enter = kør · Ctrl+Enter = spørg AI · Ctrl+Shift+C = kopiér markering · Ctrl+J = AI-panel · Ctrl+H = historik · Ctrl+, = setup"
-                       aria-label="Ask AI, eller skriv en kommando" placeholder="" />
+                       title="Enter = kør · Ctrl+Enter = spørg AI · Ctrl+Shift+C = kopiér markering · Ctrl+J = AI-panel · Ctrl+H = historik · Ctrl+, = opsætning"
+                       aria-label="Spørg AI, eller skriv en kommando" placeholder="" />
               </span>
-              <span id="cwd-label" class="cwd-label" title="Working directory"></span>
+              <span id="cwd-label" class="cwd-label" title="Arbejdsmappe"></span>
             </div>
           </div>
         </section>
@@ -120,16 +120,16 @@
               <button id="chip-chat" class="chip active" title="Almindelig chat — AI foreslår, du kører">Chat</button>
               <button id="chip-agent" class="chip" title="Agent — AI overtager styringen og kører jobbet i terminalen">Agent</button>
             </div>
-            <button id="btn-clear-chat" class="ai-head-btn" title="Clear conversation">Clear</button>
+            <button id="btn-clear-chat" class="ai-head-btn" title="Ryd samtalen">Ryd</button>
           </header>
           <div id="ai-messages"></div>
           <div id="ai-suggestions"></div>
           <form id="ai-composer">
             <textarea id="ai-input" rows="2" placeholder="Spørg AI-en … (Enter = send · skriv /help for hjælp og fejlsøgning)"></textarea>
             <div class="ai-composer-row">
-              <button type="button" id="btn-send-terminal" title="Send last terminal output as context">Attach last output</button>
+              <button type="button" id="btn-send-terminal" title="Send seneste terminaloutput som kontekst">Vedhæft seneste output</button>
               <span class="spacer"></span>
-              <button type="button" id="btn-ai-stop" title="Stop generating" hidden>Stop</button>
+              <button type="button" id="btn-ai-stop" title="Stop generering" hidden>Stop</button>
               <button type="submit" id="btn-ai-send">Send</button>
             </div>
           </form>
@@ -164,8 +164,8 @@
   <div id="settings-overlay" class="hidden">
     <div id="settings-dialog" role="dialog" aria-modal="true">
       <header>
-        <h2>Settings</h2>
-        <button id="btn-close-settings" class="tb-btn" title="Close">&#10005;</button>
+        <h2>Indstillinger</h2>
+        <button id="btn-close-settings" class="tb-btn" title="Luk">&#10005;</button>
       </header>
 
       <div class="settings-body">
@@ -182,7 +182,7 @@
           <h3>AI &amp; modeller</h3>
 
           <label class="field">
-            <span>Provider</span>
+            <span>Udbyder</span>
             <select id="set-provider"></select>
           </label>
 
@@ -264,13 +264,13 @@
           </label>
 
           <div class="field-check">
-            <label><input type="checkbox" id="set-agent-mode" /> Agent mode (system prompt with terminal rules)</label>
-            <label><input type="checkbox" id="set-confirm" /> Confirm before running destructive AI commands</label>
+            <label><input type="checkbox" id="set-agent-mode" /> Agent-tilstand (systemprompt med terminalregler)</label>
+            <label><input type="checkbox" id="set-confirm" /> Bekræft før AI'en kører ødelæggende kommandoer</label>
             <label><input type="checkbox" id="set-autorun" /> AI må udføre kommandoer automatisk, når du beder om det</label>
           </div>
 
           <div class="conn-row">
-            <button id="btn-test-conn" type="button">Test connection</button>
+            <button id="btn-test-conn" type="button">Test forbindelse</button>
             <span id="conn-result"></span>
           </div>
         </section>
@@ -299,11 +299,11 @@
         <section id="sec-net">
           <h3>Netværk &amp; fjernstyring
             <span class="info-dot" tabindex="0"
-                  title="Krav for at forbinde til en anden PC p&#229; LAN'et:&#10;• begge PC'er p&#229; samme netv&#230;rk&#10;• SSH sl&#229;et til p&#229; m&#229;l-PC'en (kør “Sl&#229; SSH til” som admin — se menuen Setup) eller WinRM (Enable-PSRemoting -Force)&#10;• brugernavn/adgangskode p&#229; m&#229;l-PC'en&#10;V&#230;rter gemmes her og &#229;bnes som en fjern-fane, hvor alle kommandoer k&#248;res p&#229; fjernv&#230;rten.">i</span>
+                  title="Krav for at forbinde til en anden PC p&#229; LAN'et:&#10;• begge PC'er p&#229; samme netv&#230;rk&#10;• SSH sl&#229;et til p&#229; m&#229;l-PC'en (kør “Sl&#229; SSH til” som admin — se menuen Opsætning) eller WinRM (Enable-PSRemoting -Force)&#10;• brugernavn/adgangskode p&#229; m&#229;l-PC'en&#10;V&#230;rter gemmes her og &#229;bnes som en fjern-fane, hvor alle kommandoer k&#248;res p&#229; fjernv&#230;rten.">i</span>
           </h3>
           <p class="small">Hold musen over <b>i</b> for kravene — værter gemmes her og åbnes som en fjern-fane.</p>
           <div class="conn-row">
-            <button id="btn-show-ssh-setup" type="button">SSH setup-kommando</button>
+            <button id="btn-show-ssh-setup" type="button">SSH-opsætningskommando</button>
             <span id="ssh-setup-note" class="small"></span>
           </div>
         </section>
@@ -311,16 +311,16 @@
         <section id="sec-term">
           <h3>Terminal</h3>
           <label class="field">
-            <span>Default shell</span>
+            <span>Standard-shell</span>
             <select id="set-shell">
               <option value="powershell">PowerShell</option>
               <option value="pwsh">PowerShell 7 (pwsh)</option>
-              <option value="cmd">Command Prompt</option>
+              <option value="cmd">Kommandoprompt</option>
               <option value="gitbash">Git Bash</option>
             </select>
           </label>
           <label class="field">
-            <span>Font scale</span>
+            <span>Skriftstørrelse</span>
             <input id="set-fontscale" type="range" min="0.7" max="1.6" step="0.05" value="1" />
           </label>
         </section>
@@ -333,7 +333,7 @@
               <select id="set-theme">
                 <option value="standard">Standard (mørk)</option>
                 <option value="black">Dyb sort</option>
-                <option value="ocean">Ocean (blå)</option>
+                <option value="ocean">Havblå</option>
                 <option value="terminal">Terminal (grøn)</option>
                 <option value="lys">Lys</option>
               </select>
@@ -341,22 +341,22 @@
             <label class="field">
               <span>Accentfarve</span>
               <div class="row">
-                <input id="set-accent" type="color" value="#7c6cff" title="Farve på knapper, markering og cursor" />
-                <span class="small">knapper · markering · cursor</span>
+                <input id="set-accent" type="color" value="#7c6cff" title="Farve på knapper, markering og markør" />
+                <span class="small">knapper · markering · markør</span>
               </div>
             </label>
           </div>
           <p class="small">Tema ændrer baggrund og tekst overalt (inkl. terminalen). Accentfarven bruges til knapper,
-          tekstmarkering og cursor — vælg frit og tryk Save.</p>
+          tekstmarkering og markør — vælg frit og tryk Gem.</p>
         </section>
 
         <section id="sec-about" class="settings-meta">
           <h3>Om</h3>
           <div id="settings-paths" class="mono small"></div>
           <div class="row gap">
-            <button id="btn-open-settings-file" type="button">Open settings.json</button>
+            <button id="btn-open-settings-file" type="button">Åbn settings.json</button>
             <button id="btn-open-actions" type="button" title="github.com/h4xtor/Lennarts-Terminal/actions">GitHub Actions (CI)</button>
-            <button id="btn-reset-settings" type="button" class="danger">Reset all settings</button>
+            <button id="btn-reset-settings" type="button" class="danger">Nulstil alle indstillinger</button>
           </div>
         </section>
       </div>
@@ -364,7 +364,7 @@
       <footer>
         <span class="small" id="settings-save-note"></span>
         <span class="spacer"></span>
-        <button id="btn-save-settings" class="primary">Save</button>
+        <button id="btn-save-settings" class="primary">Gem</button>
       </footer>
     </div>
   </div>

@@ -82,6 +82,16 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
+  if (req.method === 'POST' && req.url === '/flush/chat/completions') {
+    req.on('data', () => {});
+    req.on('end', () => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      // No trailing blank line: the final token must still reach the client.
+      res.write('data: {"choices":[{"delta":{"content":"tail"}}]}');
+      res.end();
+    });
+    return;
+  }
   if (req.method === 'POST' && req.url === '/v1/chat/completions') {
     let body = '';
     req.on('data', (c) => { body += c; });
@@ -128,6 +138,19 @@ async function main() {
   });
   assert.strictEqual(ocText, 'hello world', `openai-compatible streaming failed: ${ocText}`);
   console.log('PASS openai-compatible listModels + streaming chat');
+
+  // --- SSE stream without the final blank line ---
+  const flushCfg = {
+    provider: 'openai-compatible',
+    model: 'mock-coder',
+    baseUrl: `http://127.0.0.1:${PORT}/flush`,
+  };
+  let flushText = '';
+  await chat(flushCfg, [{ role: 'user', content: 'hi' }], {
+    onToken: (t) => { flushText += t; },
+  });
+  assert.strictEqual(flushText, 'tail', `SSE tail token lost: ${flushText}`);
+  console.log('PASS openai-compatible SSE without trailing blank line');
 
   if (server.closeAllConnections) server.closeAllConnections();
   // --- Anthropic protocol ---

@@ -116,6 +116,7 @@ class TerminalTab {
     this.fitAddon = null;
     this.el = null;
     this.tabEl = null;
+    this._unsubs = [];
   }
 
   async open() {
@@ -214,7 +215,7 @@ class TerminalTab {
     this.tabEl = document.createElement('div');
     this.tabEl.className = 'tab';
     this.tabEl.innerHTML = `<span class="tab-title">${escapeHtml(this.shellName || this.shell || 'Shell')}</span>
-      <button class="tab-close" title="Close tab">&#10005;</button>`;
+      <button class="tab-close" title="Luk fane">&#10005;</button>`;
     this.tabEl.addEventListener('click', () => activateTab(this.tabId));
     this.tabEl.querySelector('.tab-close').addEventListener('click', (e) => {
       e.stopPropagation();
@@ -226,16 +227,16 @@ class TerminalTab {
 
     // PTY -> xterm (+ rolling buffer for AI context)
     this.outputBuf = '';
-    window.lennart.onTerminalData(({ id, data }) => {
+    this._unsubs.push(window.lennart.onTerminalData(({ id, data }) => {
       if (id !== this.sessionId) return;
       this.outputBuf = (this.outputBuf + data).slice(-8000);
       this.xterm?.write(data);
-    });
-    window.lennart.onTerminalExit(({ id, code }) => {
+    }));
+    this._unsubs.push(window.lennart.onTerminalExit(({ id, code }) => {
       if (id !== this.sessionId || this.dead) return;
       this.dead = true;
-      this.xterm.writeln(`\r\n\x1b[38;5;245m[process exited with code ${code} — tab stays open]\x1b[0m`);
-    });
+      this.xterm.writeln(`\r\n\x1b[38;5;245m[processen afsluttede med kode ${code} — fanen forbliver åben]\x1b[0m`);
+    }));
 
     this.fit();
     return this;
@@ -274,6 +275,10 @@ class TerminalTab {
 
   destroy() {
     this.dead = true;
+    for (const off of this._unsubs) {
+      try { off(); } catch { /* already gone */ }
+    }
+    this._unsubs = [];
     if (this.sessionId) window.lennart.destroyTerminal(this.sessionId);
     this.xterm?.dispose();
     this.el?.remove();
@@ -344,13 +349,13 @@ function createRemoteTab(host) {
     fitAddon: null,
     el: null,
     tabEl: null,
+    _unsubs: [],
   };
 
   const container = document.getElementById('terminal-container');
   tab.el = document.createElement('div');
   tab.el.className = 'term-tab';
   tab.el.style.height = '100%';
-  tab.el.style.display = 'none';
   tab.el.style.display = 'flex';
   tab.el.style.flexDirection = 'column';
   container.appendChild(tab.el);
@@ -383,7 +388,7 @@ function createRemoteTab(host) {
     lineHeight: 1.15,
     cursorBlink: true,
     scrollback: 8000,
-    theme: TERM_THEME,
+    theme: CURRENT_TERM_THEME,
   });
   tab.fitAddon = new FitAddon.FitAddon();
   tab.xterm.loadAddon(tab.fitAddon);
@@ -391,10 +396,10 @@ function createRemoteTab(host) {
   tab.xterm.writeln(`\x1b[38;5;245m-- Fjernforbindelse: ${host.name || host.host} (${host.host}) via ${host.method.toUpperCase()} --\x1b[0m`);
   tab.xterm.writeln(`\x1b[38;5;245m   Skriv kommandoer i boksen nederst og tryk Enter — de køres på værten.\x1b[0m\r\n`);
 
-  window.lennart.onRemoteData(({ tabId, text }) => {
+  tab._unsubs.push(window.lennart.onRemoteData(({ tabId, text }) => {
     if (tabId !== tab.tabId) return;
     tab.xterm.write(text.replace(/\n/g, '\r\n'));
-  });
+  }));
 
   // run a command on the host (called by the bottom prompt box)
   tab.runCommand = async (cmd) => {
@@ -405,13 +410,17 @@ function createRemoteTab(host) {
     tab.busy = true;
     tab.xterm.writeln(`\x1b[38;5;141mPS ${host.host}> ${cmd}\x1b[0m`);
     const res = await window.lennart.remoteRun({ hostId: host.id, command: cmd, tabId: tab.tabId });
-    if (res && res.timedOut) tab.xterm.writeln(`\x1b[33m[timeout — kommandoen gav ikke svar i tide]\x1b[0m`);
+    if (res && res.timedOut) tab.xterm.writeln(`\x1b[33m[tidsudløb — kommandoen svarede ikke i tide]\x1b[0m`);
     tab.xterm.write('\r\n');
     tab.busy = false;
   };
   tab.fit = () => { try { tab.fitAddon.fit(); } catch { /* hidden */ } };
   tab.destroy = () => {
     tab.dead = true;
+    for (const off of tab._unsubs) {
+      try { off(); } catch { /* already gone */ }
+    }
+    tab._unsubs = [];
     tab.xterm.dispose();
     tab.el.remove();
     tab.tabEl.remove();

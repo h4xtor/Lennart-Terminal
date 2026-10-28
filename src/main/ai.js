@@ -50,7 +50,7 @@ const PROVIDERS = {
     needsKey: false,
   },
   'openai-compatible': {
-    label: 'Custom OpenAI-kompatibel…',
+    label: 'Tilpasset OpenAI-kompatibel…',
     group: 'Lokale / private',
     protocol: 'openai',
     baseUrl: '',
@@ -154,15 +154,17 @@ function providerInfo(id) {
 }
 
 function resolveConfig(cfg) {
-  const info = providerInfo(cfg.provider) || {};
-  const baseUrl = (cfg.baseUrl || '').trim() || info.baseUrl || '';
-  const apiKey = (cfg.apiKey || '').trim();
+  const info = providerInfo(cfg.provider);
   // Stale/unknown provider id (settings saved by an older build): the offline
   // embedded assistant is the safe default — it needs no key, URL or model.
+  // Never carry a stale custom URL/key over to the fallback provider.
   const provider = info ? cfg.provider : DEFAULT_PROVIDER;
+  const resolved = info || providerInfo(DEFAULT_PROVIDER);
+  const baseUrl = info ? ((cfg.baseUrl || '').trim() || info.baseUrl || '') : '';
+  const apiKey = info ? (cfg.apiKey || '').trim() : '';
   return {
     provider,
-    protocol: (info || providerInfo(DEFAULT_PROVIDER)).protocol || 'openai',
+    protocol: resolved.protocol || 'openai',
     baseUrl,
     apiKey,
   };
@@ -195,7 +197,7 @@ async function listModels(cfg, { timeout = 6000 } = {}) {
   const { provider, protocol, baseUrl, apiKey } = resolveConfig(cfg);
 
   if (!baseUrl && provider !== 'antigravity-cli') {
-    throw new Error('Ingen base URL konfigureret — åbn Settings og vælg en udbyder (eller tilføj en base URL)');
+    throw new Error('Ingen base URL konfigureret — åbn Indstillinger og vælg en udbyder (eller tilføj en base URL)');
   }
 
   if (protocol === 'ollama') {
@@ -211,7 +213,7 @@ async function listModels(cfg, { timeout = 6000 } = {}) {
   }
 
   if (protocol === 'anthropic') {
-    if (!apiKey) throw new Error('Anthropic kræver en API-nøgle (Settings → API-nøgle)');
+    if (!apiKey) throw new Error('Anthropic kræver en API-nøgle (Indstillinger → API-nøgle)');
     const headers = {
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
@@ -285,12 +287,12 @@ async function chat(cfg, messages, { system, onToken, signal } = {}) {
   const model = cfg.model || '';
 
   if (!model && provider !== 'antigravity-cli') {
-    throw new Error('Ingen model valgt — åbn Settings og vælg en');
+    throw new Error('Ingen model valgt — åbn Indstillinger og vælg en');
   }
   // Never let a half-configured provider reach fetch with an empty URL
   // (that surfaced as "Failed to parse URL from /chat/completions").
   if (protocol === 'openai' && !baseUrl) {
-    throw new Error('AI-udbyder er ikke konfigureret — åbn Settings og vælg "Indbygget (offline)" eller udfyld en base URL');
+    throw new Error('AI-udbyder er ikke konfigureret — åbn Indstillinger og vælg "Indbygget (offline)" eller udfyld en base URL');
   }
 
   const temperature = Number.isFinite(cfg.temperature) ? cfg.temperature : 0.4;
@@ -399,7 +401,7 @@ async function chatAgy({ messages, system, onToken, signal, model, allowTools })
 }
 
 async function chatAnthropic({ baseUrl, model, messages, system, temperature, maxTokens, topP, apiKey, onToken, signal }) {
-  if (!apiKey) throw new Error('Anthropic kræver en API-nøgle (Settings → API Keys)');
+  if (!apiKey) throw new Error('Anthropic kræver en API-nøgle (Indstillinger → API-nøgle)');
 
   // Anthropic has no system-role messages — merge them into the system prompt
   const systemText = [system, ...messages.filter((m) => m.role === 'system').map((m) => m.content)]
@@ -448,7 +450,7 @@ const { spawn } = require('child_process');
 
 function agyAvailable() {
   return new Promise((resolve) => {
-    const p = spawn('agy', ['--version'], { shell: true });
+    const p = spawn('agy', ['--version'], { shell: true, windowsHide: true });
     p.on('error', () => resolve(false));
     p.on('close', (code) => resolve(code === 0));
   });
@@ -456,7 +458,7 @@ function agyAvailable() {
 
 function listAgyModels() {
   return new Promise((resolve, reject) => {
-    const p = spawn('agy', ['models'], { shell: true });
+    const p = spawn('agy', ['models'], { shell: true, windowsHide: true });
     let out = '';
     p.stdout.on('data', (d) => { out += d; });
     p.on('error', (err) => reject(new Error(`agy CLI ikke fundet: ${err.message}`)));
@@ -566,6 +568,7 @@ async function consumeNdjson(res, onObject) {
       try { onObject(JSON.parse(t)); } catch { /* partial */ }
     }
   }
+  buf += decoder.decode();
   if (buf.trim()) {
     try { onObject(JSON.parse(buf.trim())); } catch { /* ignore */ }
   }
@@ -575,18 +578,25 @@ async function consumeSse(res, onPayload) {
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buf = '';
+  const consume = (chunk) => {
+    for (const ev of chunk.split('\n\n')) {
+      for (const line of ev.split('\n')) {
+        if (line.startsWith('data:')) onPayload(line.slice(5).trim());
+      }
+    }
+  };
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
     buf += decoder.decode(value, { stream: true });
     const events = buf.split('\n\n');
     buf = events.pop() || '';
-    for (const ev of events) {
-      for (const line of ev.split('\n')) {
-        if (line.startsWith('data:')) onPayload(line.slice(5).trim());
-      }
-    }
+    consume(events.join('\n\n'));
   }
+  // Some providers close the stream without the final blank line; flush the
+  // decoder + remainder so the last (possibly multi-byte) token is not lost.
+  buf += decoder.decode();
+  if (buf.trim()) consume(buf);
 }
 
 // ---------------------------------------------------------------------------
@@ -620,10 +630,10 @@ function buildPowerShellSystemPrompt() {
     'Du er god til PowerShell og hjælper med fejlfinding på PC\'er.',
     '',
     'Du kender også selve appen “Lennart Terminal” og kan forklare den:',
-    '- Warp-agtig Windows-terminal: 20 netværksknapper i sidebar, dropdown-menuer øverst (Setup, Netværk, System, Processer, Disk, Sikkerhed, GPU & spil, Fejlfinding, Fjernstyring, AI), AI-chat til højre.',
-    '- Fjernstyring: quick-connect til en LAN-IP (SSH eller WinRM) åbner en fjern-fane hvor kommandoer køres på den anden PC. Kræver SSH slået til (Setup → “Slå SSH til”, admin) eller Enable-PSRemoting.',
-    '- Modeller: “Hent modeller” i Setup henter flere lokale GGUF-modeller; Ollama og API-udbydere kan vælges i samme dialog. /help i chatten giver kontekstbaseret fejlsøgning.',
-    '- Genveje: Ctrl+T ny fane · Ctrl+J AI-panel · Ctrl+H historik · Ctrl+, setup · Ctrl+Shift+C kopiér markering.',
+    '- Warp-agtig Windows-terminal: 20 netværksknapper i sidebar, dropdown-menuer øverst (Opsætning, Netværk, System, Processer, Disk, Sikkerhed, GPU & spil, Fejlfinding, Fjernstyring, AI), AI-chat til højre.',
+    '- Fjernstyring: quick-connect til en LAN-IP (SSH eller WinRM) åbner en fjern-fane hvor kommandoer køres på den anden PC. Kræver SSH slået til (Opsætning → “Slå SSH til”, admin) eller Enable-PSRemoting.',
+    '- Modeller: “Hent modeller” i Opsætning henter flere lokale GGUF-modeller; Ollama og API-udbydere kan vælges i samme dialog. /help i chatten giver kontekstbaseret fejlsøgning.',
+    '- Genveje: Ctrl+T ny fane · Ctrl+J AI-panel · Ctrl+H historik · Ctrl+, opsætning · Ctrl+Shift+C kopiér markering.',
     '',
     'Følg altid dette svarformat:',
     'Bruger: Hvad er kommanden til at vise IP-adressen — og vil du udføre den for mig?',

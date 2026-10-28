@@ -4,7 +4,7 @@ async function bootApp() {
   window.__lennartSettings = await window.lennart.getSettings();
   applyFontScale();
   document.getElementById('agent-mode-state').textContent =
-    window.__lennartSettings.agentMode !== false ? 'On' : 'Off';
+    window.__lennartSettings.agentMode !== false ? 'Til' : 'Fra';
   applyTheme();
   try {
     window.__lennartElevation = await window.lennart.elevation();
@@ -12,6 +12,11 @@ async function bootApp() {
     window.__lennartElevation = { admin: true };
   }
   window.lennart.log('step 2: settings loaded');
+  try {
+    // Load the provider labels once at boot so the AI header shows a friendly
+    // name even if Settings has never been opened.
+    window.__providerCatalog = await window.lennart.providersCatalog();
+  } catch { /* header falls back to the provider id */ }
 
   // Native menu accelerators (Ctrl+, / Ctrl+J / Ctrl+T / Ctrl+W) — fire
   // regardless of focus, even when xterm has the caret
@@ -120,7 +125,7 @@ async function toggleAgentMode() {
   const next = !(window.__lennartSettings.agentMode !== false);
   window.__lennartSettings.agentMode = next;
   await window.lennart.setSettings({ agentMode: next });
-  document.getElementById('agent-mode-state').textContent = next ? 'On' : 'Off';
+  document.getElementById('agent-mode-state').textContent = next ? 'Til' : 'Fra';
 }
 
 function applyFontScale() {
@@ -246,7 +251,7 @@ async function runMenuAction(action) {
     case 'ssh-setup': {
       const { command } = await window.lennart.hostsSshSetupCommand();
       await navigator.clipboard.writeText(command);
-      if (typeof appendStatus === 'function') appendStatus(`SSH setup-kommando kopieret`);
+      if (typeof appendStatus === 'function') appendStatus(`SSH-opsætningskommando kopieret`);
       window.alert(`Kør dette én gang på mål-PC'en (som admin) for at slå SSH til:\n\n${command}`);
       break;
     }
@@ -303,8 +308,8 @@ async function runMenuAction(action) {
       }, 350);
       break;
     case 'models-refresh':
-      await refreshModelList();
       if (typeof renderModelPanel === 'function') await renderModelPanel();
+      if (document.getElementById('set-provider')?.value) await refreshModelList();
       break;
     case 'github-actions':
       window.lennart.openExternal('https://github.com/h4xtor/Lennarts-Terminal/actions');
@@ -431,7 +436,7 @@ async function refreshAiStatus() {
     };
     const res = await window.lennart.checkConnection(cfg);
     dot.className = `status-dot ${res.ok ? 'ok' : 'err'}`;
-    const model = s.ai.model || 'no model';
+    const model = s.ai.model || 'ingen model';
     // Online/Offline reflects reality: for Ollama & co. the endpoint is
     // actually pinged, so “Online” means the engine is really running.
     text.textContent = res.ok ? `AI: Online · ${s.ai.provider} · ${model}` : 'AI: Offline';
@@ -499,7 +504,7 @@ function wireSettingsEvents() {
     window.lennart.revealSettingsFile();
   });
   document.getElementById('btn-reset-settings').addEventListener('click', async () => {
-    if (!window.confirm('Reset all settings to defaults?')) return;
+    if (!window.confirm('Nulstil alle indstillinger til standard?')) return;
     await window.lennart.resetSettings();
     window.__lennartSettings = await window.lennart.getSettings();
     applyFontScale();
@@ -511,7 +516,7 @@ function wireSettingsEvents() {
 
 async function refreshAgyModels() {
   const sel = document.getElementById('set-agy-model');
-  sel.innerHTML = '<option value="">loading…</option>';
+  sel.innerHTML = '<option value="">henter…</option>';
   const res = await window.lennart.agyModels();
   sel.innerHTML = '<option value="">— standard —</option>';
   if (res.ok) {
@@ -536,7 +541,7 @@ async function saveSettings() {
   applyFontScale();
   applyTheme();
   if (window.__updateAiHeaderModel) window.__updateAiHeaderModel();
-  document.getElementById('settings-save-note').textContent = `Saved ${new Date().toLocaleTimeString()}`;
+  document.getElementById('settings-save-note').textContent = `Gemt ${new Date().toLocaleTimeString()}`;
   await refreshAiStatus();
 }
 
@@ -563,5 +568,5 @@ window.addEventListener('keydown', (e) => {
 bootApp().catch((err) => {
   window.lennart?.log(`bootApp failed: ${err.stack || err}`);
   document.body.innerHTML =
-    `<pre style="color:#f87171;padding:20px;white-space:pre-wrap">Lennart Terminal failed to start:\n${err.stack || err}</pre>`;
+    `<pre style="color:#f87171;padding:20px;white-space:pre-wrap">Lennart Terminal kunne ikke starte:\n${err.stack || err}</pre>`;
 });

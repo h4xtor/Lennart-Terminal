@@ -19,7 +19,7 @@ async function loadHosts() {
   for (const h of hosts) {
     const el = document.createElement('button');
     el.className = 'host-item';
-    el.title = `${h.host} · ${h.method.toUpperCase()} — klik for at åbne fjern-fane`;
+    el.title = `${h.host} · ${(h.method || 'ssh').toUpperCase()} — klik for at åbne fjern-fane`;
     el.innerHTML = `
       <span class="dot ok"></span>
       <span class="name">${escapeHtml(h.name || h.host)}</span>
@@ -100,7 +100,7 @@ function initHostUI() {
     const res = await window.lennart.remoteTest(hostFromForm());
     el.className = res.ok ? 'ok' : 'err';
     const out = (res.output || '').trim().split('\n').filter(Boolean).pop() || '';
-    el.textContent = res.ok ? `OK — svar: ${out}` : `Fejlede: ${out || 'timeout'}`;
+    el.textContent = res.ok ? `OK — svar: ${out}` : `Fejlede: ${out || 'tidsudløb'}`;
   });
   document.getElementById('btn-show-ssh-setup').addEventListener('click', async () => {
     const { command } = await window.lennart.hostsSshSetupCommand();
@@ -128,6 +128,13 @@ function openRemoteTab(host) {
 // History dialog
 // ---------------------------------------------------------------------------
 
+const HISTORY_TYPE_LABELS = {
+  local: 'Lokalt',
+  remote: 'Netværk',
+  agent: 'Agent',
+  ai: 'AI',
+};
+
 async function loadHistoryList() {
   const listEl = document.getElementById('history-list');
   const q = document.getElementById('history-search').value.trim();
@@ -147,7 +154,7 @@ async function loadHistoryList() {
     const host = r.host && r.host !== 'local' ? escapeHtml(r.host) : '';
     el.innerHTML = `
       <div class="row1">
-        <span class="h-type ${escapeHtml(r.type)}">${escapeHtml(r.type)}</span>
+        <span class="h-type ${escapeHtml(r.type)}">${escapeHtml(HISTORY_TYPE_LABELS[r.type] || r.type)}</span>
         ${host ? `<span class="h-host">${host}</span>` : ''}
         <span class="h-time">${escapeHtml(time)}</span>
       </div>

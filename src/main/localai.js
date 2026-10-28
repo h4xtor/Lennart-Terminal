@@ -329,16 +329,35 @@ class LocalAI {
       let settled = false;
       const deadline = Date.now() + 180000; // first load can be slow from USB HDD
 
-      this.child.once('exit', (code) => {
+      let pollTimer = null;
+      const fail = (message) => {
         if (settled) return;
         settled = true;
         clearInterval(pollTimer);
         this.state = 'error';
-        this.lastError = `llama-server afsluttede med kode ${code}`;
-        reject(new Error(this.lastError));
+        this.lastError = message;
+        reject(new Error(message));
+      };
+
+      this.child.once('exit', (code) => {
+        // A crash AFTER startup must not leave status() claiming "running".
+        if (settled) {
+          this.child = null;
+          if (this.state === 'running') {
+            this.state = 'error';
+            this.lastError = `llama-server stoppede uventet (kode ${code})`;
+          }
+          return;
+        }
+        fail(`llama-server afsluttede med kode ${code}`);
+      });
+      // Without this listener a spawn failure (missing binary, permissions)
+      // was an uncaught EventEmitter error and ensure() never settled.
+      this.child.once('error', (err) => {
+        fail(`Kunne ikke starte llama-server: ${err.message || err}`);
       });
 
-      const pollTimer = setInterval(() => {
+      pollTimer = setInterval(() => {
         if (settled) return;
         httpGetJson(healthUrl(this.port), 1200)
           .then((h) => {
@@ -351,11 +370,8 @@ class LocalAI {
           })
           .catch(() => { /* not ready yet */ });
         if (Date.now() > deadline && !settled) {
-          settled = true;
-          clearInterval(pollTimer);
-          this.state = 'error';
-          this.lastError = 'lokal AI-server svarer ikke (timeout 180s)';
-          reject(new Error(this.lastError));
+          try { this.child.kill(); } catch { /* already dead */ }
+          fail('lokal AI-server svarer ikke (timeout 180s)');
         }
       }, 700);
     });

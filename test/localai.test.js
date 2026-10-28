@@ -37,7 +37,7 @@ async function testBinName() {
 async function testPathsAndStatus(tmpRoot) {
   const ai = new LocalAI({ root: path.join(tmpRoot, 'localai'), log: () => {}, emit: () => {} });
   const p = ai.paths();
-  assert.ok(p.bin.endsWith(binName('win32')));
+  assert.ok(p.bin.endsWith(binName()));
   assert.ok(p.model.endsWith(LOCAL_MODEL.file));
   const st = ai.status();
   assert.strictEqual(st.running, false);

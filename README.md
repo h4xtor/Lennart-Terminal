@@ -1,6 +1,6 @@
 # Lennart Terminal
 
-A AI-inspired terminal for Windows with an integrated **AI agent** — chat with your terminal, or let the AI take over and run a whole job for you.
+An AI-inspired terminal for Windows with an integrated **AI agent** — chat with your terminal, or let the AI take over and run a whole job for you.
 
 [![CI](https://github.com/h4xtor/Lennarts-Terminal/actions/workflows/ci.yml/badge.svg)](https://github.com/h4xtor/Lennarts-Terminal/actions/workflows/ci.yml) ![platform](https://img.shields.io/badge/platform-Windows-blue) ![license](https://img.shields.io/badge/license-MIT-green)
 
@@ -57,9 +57,9 @@ Unplug, walk to the next PC, plug in, run — your AI, your hosts, your history,
 
 ## Run commands on network PCs
 
-1. Click **+ Tilføj vært…** in the sidebar (or add hosts under Settings → Netværk)
+1. Click **+ Tilføj vært…** in the sidebar (or add hosts under Indstillinger → Netværk)
 2. Choose **SSH** (recommended) or **WinRM**
-3. On each target PC, run the one-time SSH setup command (button in Settings → Netværk, run as admin):
+3. On each target PC, run the one-time SSH setup command (button in Indstillinger → Netværk, run as admin):
 
 ```powershell
 Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service sshd; Set-Service sshd -StartupType Automatic; New-NetFirewallRule -Name sshd -DisplayName "OpenSSH Server" -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
@@ -69,7 +69,7 @@ Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service ssh
 
 ## Connect an AI
 
-Open **Settings (Ctrl+,)** → *AI Provider* → press **↻** to load models → pick one → **Save**. The sidebar LED turns green when the endpoint answers.
+Open **Indstillinger (Ctrl+,)** → *AI & modeller* → press **↻** to load models → pick one → **Save**. The sidebar LED turns green when the endpoint answers.
 
 ### Local / private (no key needed)
 
@@ -105,11 +105,11 @@ npm install -g omniroute
 omniroute
 ```
 
-Then in Lennart Terminal: Settings → *OmniRoute (gateway)* → ↻ → pick `auto` (or any specific model) → Save. Done — no API keys required for the free tiers.
+Then in Lennart Terminal: Indstillinger → *OmniRoute (gateway)* → ↻ → pick `auto` (or any specific model) → Save. Done — no API keys required for the free tiers.
 
 ### Agent brain
 
-Settings → *Agent* lets you choose who drives Agent mode:
+Indstillinger → *Agent* lets you choose who drives Agent mode:
 
 - **Built-in autopilot** — uses your selected AI provider, runs the plan/run/observe loop in your active terminal tab
 - **Antigravity CLI** — if [`agy`](https://antdna.dev) is installed, its models appear here and the CLI becomes the agent engine (and chat backend)
@@ -121,7 +121,7 @@ Settings → *Agent* lets you choose who drives Agent mode:
 | `Ctrl+T` | New tab |
 | `Ctrl+W` | Close tab |
 | `Ctrl+J` | Toggle AI panel |
-| `Ctrl+,` | Settings |
+| `Ctrl+,` | Indstillinger |
 | `Ctrl+0` / `Ctrl+=` / `Ctrl+-` | Reset / zoom in / zoom out |
 | `Enter` (prompt box) | Run command in active tab |
 | `Ctrl+Enter` (prompt box) | Send prompt text to the AI |
@@ -156,12 +156,12 @@ Runs the AI layer against mock local servers (no Ollama required) and verifies m
 ## Security notes
 
 - API keys live in `%APPDATA%\Lennart Terminal\settings.json` — never commit this file, never paste keys into issues
-- The agent's destructive-command confirmation can be relaxed in Settings, but the hard deny-list (`format`, `diskpart`, `bcdedit`, …) cannot
+- The agent's destructive-command confirmation can be relaxed in Indstillinger, but the hard deny-list (`format`, `diskpart`, `bcdedit`, …) cannot
 - Terminal output is only sent to your configured AI provider when you attach it
 
 ## Contributing
 
-PRs are welcome! Keep it dependency-light, match the existing code style, and run `npm test` before submitting. Good first issues: shell profiles for macOS/Linux, i18n of the UI strings, more agent safety heuristics.
+PRs are welcome! Keep it dependency-light, match the existing code style, and run `npm test` before submitting. Good first issues: shell profiles for macOS/Linux, more agent safety heuristics.
 
 ## License
 

@@ -165,8 +165,8 @@ async function buildHelpContext() {
   }
 
   lines.push(`AI: ${s.ai?.provider || '?'} · ${s.ai?.model || 'indbygget standardmodel'} · auto-udfør: ${s.aiAutoRun === false ? 'fra' : 'til'} · bekræftelse før ødelæggende: ${s.confirmDestructive === false ? 'fra' : 'til'}.`);
-  lines.push('Appen: Lennart Terminal — 20 netværksknapper i sidebar, dropdown-menuer øverst (Setup først), quick-connect til LAN-IP (SSH eller WinRM), AI-chat til højre som kan udføre kommandoer, historik (Ctrl+H), fjernfaner der kører kommandoer på andre PC’er.');
-  lines.push('Genveje: Ctrl+T ny fane · Ctrl+J AI-panel · Ctrl+H historik · Ctrl+, setup · Ctrl+Shift+C kopiér markering.');
+  lines.push('Appen: Lennart Terminal — 20 netværksknapper i sidebar, dropdown-menuer øverst (Opsætning først), quick-connect til LAN-IP (SSH eller WinRM), AI-chat til højre som kan udføre kommandoer, historik (Ctrl+H), fjernfaner der kører kommandoer på andre PC’er.');
+  lines.push('Genveje: Ctrl+T ny fane · Ctrl+J AI-panel · Ctrl+H historik · Ctrl+, opsætning · Ctrl+Shift+C kopiér markering.');
   lines.push('Svar på dansk og struktureret: (1) hvor personen står, (2) 2-4 sandsynlige årsager, (3) konkrete løsninger — giv kommandoer i ```powershell-kodeblokke.');
 
   return lines.join('\n\n');
@@ -181,7 +181,7 @@ async function sendHelpRequest(text) {
   appendMessageEl('user', text);
   aiState.helpContext = [
     'Du er Lennart Terminals AI-assistent. Brugeren skrev "/help" i appen — det er IKKE et ønske om at køre PowerShell-kommandoen "help".',
-    'Giv ENDIg ikke kun én kommando: lever en fejlsøgningsdiagnose.',
+    'Giv ikke kun én kommando: lever en fejlsøgningsdiagnose.',
     'Kontekst for hvor personen står:',
     ctx,
     '',
@@ -212,20 +212,20 @@ async function localHelpMarkdown(err) {
     where || '- (kontekst ikke tilgængelig endnu)',
     '',
     '**Genveje**',
-    '- `Ctrl+T` ny fane · `Ctrl+J` AI-panel · `Ctrl+H` historik · `Ctrl+,` Setup · `Ctrl+Shift+C` kopiér markering',
+    '- `Ctrl+T` ny fane · `Ctrl+J` AI-panel · `Ctrl+H` historik · `Ctrl+,` Opsætning · `Ctrl+Shift+C` kopiér markering',
     '- I prompt-boksen nederst: `Enter` = kør kommandoen · `Ctrl+Enter` = spørg AI-en',
     '',
     '**Tjek først**',
-    '1. Indbygget AI: `Get-Process llama-server` og `(Invoke-WebRequest -UseBasicParsing http://127.0.0.1:9601/health).Content` — starter den ikke, åbn **Setup → Hent modeller**.',
+    '1. Indbygget AI: `Get-Process llama-server` og `(Invoke-WebRequest -UseBasicParsing http://127.0.0.1:9601/health).Content` — starter den ikke, åbn **Opsætning → Hent modeller**.',
     '2. Internet: `ping 1.1.1.1 -n 4` — API-modeller kræver forbindelse; den indbyggede kører offline.',
-    '3. Fjern-PC: `Test-NetConnection <IP> -Port 22` — slå SSH til på mål-PC’en via **Setup → “Slå SSH til”** (admin), eller WinRM med `Enable-PSRemoting -Force`.',
+    '3. Fjern-PC: `Test-NetConnection <IP> -Port 22` — slå SSH til på mål-PC’en via **Opsætning → “Slå SSH til”** (admin), eller WinRM med `Enable-PSRemoting -Force`.',
     '4. Kommandoer køres ikke? Se om fanen er en fjern-fane (navnet øverst) — der køres alt på fjernværten.',
     '',
     '**Brug af AI-en**',
-    '- Skriv et spørgsmål i boksen her til højre; kodeblokke får knapperne **Kør**, **Insert** og **Copy**.',
-    '- **Setup → Hent modeller** henter stærkere modeller (Qwen3 8B, Qwen2.5 Coder 7B, DeepSeek R1 7B) til den indbyggede AI.',
+    '- Skriv et spørgsmål i boksen her til højre; kodeblokke får knapperne **Kør**, **Indsæt** og **Kopiér**.',
+    '- **Opsætning → Hent modeller** henter stærkere modeller (Qwen3 8B, Qwen2.5 Coder 7B, DeepSeek R1 7B) til den indbyggede AI.',
     '- Bed mig om en dybdegående diagnose via knappen herunder, hvis du vil have AI-en til at kigge på konteksten.',
-    err ? `_(Fejl: ${err}) — prøv igen senere.)_` : '',
+    err ? `_(Fejl: ${err} — prøv igen senere.)_` : '',
   ].filter(Boolean).join('\n');
 }
 
@@ -409,26 +409,26 @@ function failStreaming(error) {
     showLocalHelpFallback(error);
     return;
   }
-  appendMessageEl('error', `AI error: ${error}`);
+  appendMessageEl('error', `AI-fejl: ${error}`);
   scrollBottom(true);
 }
 
 function attachTerminalOutput() {
   const tab = activeTab();
   if (!tab || !tab.sessionId) {
-    appendMessageEl('error', 'No live terminal session to attach.');
+    appendMessageEl('error', 'Ingen levende terminalsession at vedhæfte.');
     return;
   }
   const buf = (tab.outputBuf || '').trim();
   if (!buf) {
-    appendMessageEl('error', 'Terminal output buffer is empty — run something first.');
+    appendMessageEl('error', 'Terminalens output-buffer er tom — kør noget først.');
     return;
   }
   aiState.messages.push({
     role: 'user',
-    content: `Recent terminal output (last ${buf.length} chars):\n\`\`\`\n${buf}\n\`\`\`\n(Use this as context for my next question.)`,
+    content: `Seneste terminaloutput (sidste ${buf.length} tegn):\n\`\`\`\n${buf}\n\`\`\`\n(Brug dette som kontekst til mit næste spørgsmål.)`,
   });
-  appendMessageEl('user', `📎 Attached ${buf.length} chars of recent terminal output`);
+  appendMessageEl('user', `📎 Vedhæftede ${buf.length} tegn seneste terminaloutput`);
   scrollBottom(true);
 }
 
@@ -450,7 +450,7 @@ function appendMessageEl(role, text) {
 
   const roleEl = document.createElement('div');
   roleEl.className = 'msg-role';
-  roleEl.textContent = role === 'user' ? 'You' : role === 'error' ? 'Error' : (aiState.modelLabel || 'AI');
+  roleEl.textContent = role === 'user' ? 'Dig' : role === 'error' ? 'Fejl' : (aiState.modelLabel || 'AI');
 
   const body = document.createElement('div');
   body.className = 'msg-body';
@@ -505,13 +505,13 @@ function wireCodeBlockActions(scope) {
     };
 
     bar.append(
-      mk('Copy', 'Copy to clipboard', () => navigator.clipboard.writeText(pre.getAttribute('data-code') || '')),
-      mk('Insert', 'Insert into prompt box (Enter to run yourself)', () => {
+      mk('Kopiér', 'Kopiér til udklipsholderen', () => navigator.clipboard.writeText(pre.getAttribute('data-code') || '')),
+      mk('Indsæt', 'Indsæt i prompt-boksen (Enter = kør selv)', () => {
         const inp = document.getElementById('prompt-input');
         inp.value = pre.getAttribute('data-code') || '';
         inp.focus();
       }),
-      mk('Run', 'Run in the active terminal tab', () => runAiCommand(pre.getAttribute('data-code') || '')),
+      mk('Kør', 'Kør i den aktive terminalfane', () => runAiCommand(pre.getAttribute('data-code') || '')),
     );
     if (lang) {
       const tag = document.createElement('span');
@@ -526,14 +526,14 @@ function wireCodeBlockActions(scope) {
 async function runAiCommand(cmd) {
   const tab = activeTab();
   if (!tab || !tab.sessionId) {
-    appendMessageEl('error', 'No active terminal session.');
+    appendMessageEl('error', 'Ingen aktiv terminalsession.');
     return;
   }
   const settings = window.__lennartSettings || {};
   if (settings.confirmDestructive !== false && isDestructiveCommand(cmd)) {
     const ok = await window.lennart.confirmCommand(cmd);
     if (!ok) {
-      appendMessageEl('error', 'Command cancelled.');
+      appendMessageEl('error', 'Kommando annulleret.');
       return;
     }
   }
@@ -622,6 +622,14 @@ function markdownToHtml(md) {
       continue;
     }
     if (inCode) { codeBuf.push(raw); continue; }
+
+    // Markdown headings ("### /help …") used to render as literal hashes.
+    const heading = raw.match(/^\s{0,3}#{1,6}\s+(.*)$/);
+    if (heading) {
+      closeList();
+      out.push(`<p class="md-head">${inlineMd(heading[1])}</p>`);
+      continue;
+    }
 
     const li = raw.match(/^\s*[-*]\s+(.*)$/);
     if (li) {

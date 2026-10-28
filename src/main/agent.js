@@ -122,7 +122,11 @@ class AgentSession {
         return { ok: false, error: 'hard-denied command' };
       }
 
-      if (this.settings.confirmDestructive !== false && isDestructive(cmd)) {
+      // Settings → Agent: "Auto-godkend agent-kommandoer" skips the
+      // destructive-command dialog (the hard deny-list still applies).
+      const needsApproval = this.settings.confirmDestructive !== false &&
+        this.settings.agentAutoApprove !== true;
+      if (needsApproval && isDestructive(cmd)) {
         emit({ type: 'status', text: `Venter på godkendelse: ${cmd}` });
         const ok = await this.deps.confirm(cmd);
         if (!ok) {
@@ -179,7 +183,7 @@ class AgentSession {
       '',
       'Reply with ONLY the JSON object for the next step.',
     ].join('\n');
-    const res = await runAgyAgent({ prompt, onEvent: null });
+    const res = await runAgyAgent({ prompt, onEvent: null, model: this.aiConfig.model || undefined });
     return parseDecision(res.text || '');
   }
 }
