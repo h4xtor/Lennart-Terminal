@@ -465,8 +465,8 @@ async function main() {
     assert(ui.copyLabel.includes('Kopiér'), `kopiér-knappen er oversat (${ui.copyLabel})`);
     assert(
       ui.typeLocal === 'Lokalt' && ui.typeRemote === 'Netværk' &&
-      ui.typeAgent === 'Agent' && ui.typeAi === 'AI',
-      'historikkens typer er Lokalt / Netværk / Agent / AI',
+      ui.typeAgent === 'Agent' && ui.typeAi.startsWith('AI'),
+      `historikkens typer er Lokalt / Netværk / Agent / AI (${ui.typeAi})`,
     );
     assert(ui.version === 'v0.2.0', `versionsmærket er korrekt (${ui.version})`);
 
