@@ -303,6 +303,12 @@ kbd {
 #terminal-container .xterm {
   height: 100%;
 }
+/* xterm.css paints the viewport black (a macOS scrollbar workaround). With a
+   transparent viewport the terminal theme's own background shows through, so
+   the strip below the last row matches the theme instead of a black bar. */
+#terminal-container .xterm .xterm-viewport {
+  background-color: transparent;
+}
 
 /* ============ Prompt box (Warp signature) ============ */
 

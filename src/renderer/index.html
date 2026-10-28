@@ -5,6 +5,10 @@
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self';" />
   <title>Lennart Terminal</title>
+  <!-- xterm's own layout rules (helpers, viewport, char measure) must load
+       before our overrides; without them the width-cache element renders a
+       row of ">" characters at the top of every terminal. -->
+  <link rel="stylesheet" href="../../node_modules/@xterm/xterm/css/xterm.css" />
   <link rel="stylesheet" href="css/warp.css" />
 </head>
 <body>

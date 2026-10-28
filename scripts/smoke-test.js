@@ -451,7 +451,9 @@ async function main() {
       typeRemote: ((document.querySelector('#history-type option[value="remote"]') || {}).textContent || '').trim(),
       typeAgent: ((document.querySelector('#history-type option[value="agent"]') || {}).textContent || '').trim(),
       typeAi: ((document.querySelector('#history-type option[value="ai"]') || {}).textContent || '').trim(),
-      version: ((document.getElementById('version-tag') || {}).textContent || '').trim()
+      version: ((document.getElementById('version-tag') || {}).textContent || '').trim(),
+      xtermHelpers: (() => { const h = document.querySelector('.xterm-helpers');
+        return h ? getComputedStyle(h).position : ''; })()
     })`));
 
     assert(ui.lang === 'da', `siden er markeret som dansk (lang="${ui.lang}")`);
@@ -473,6 +475,10 @@ async function main() {
       `historikkens typer er Lokalt / Netværk / Agent / AI (${ui.typeAi})`,
     );
     assert(ui.version === 'v0.2.0', `versionsmærket er korrekt (${ui.version})`);
+    assert(
+      ui.xtermHelpers === 'absolute',
+      `xterm.css er indlæst (helpers position: ${ui.xtermHelpers || 'mangler'})`,
+    );
 
     // ---- 3. typed history (the main fix) ----
     const typedToken = `smoke-${Date.now().toString(36)}`;
