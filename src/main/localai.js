@@ -3,7 +3,7 @@
 /**
  * Embedded local AI ("Indbygget, offline").
  *
- * A hardcoded small PowerShell-capable model (Qwen2.5-Coder 1.5B Q4) runs via
+ * A built-in model (Qwen3 4B Instruct 2507, Q4) runs via
  * llama.cpp's llama-server on 127.0.0.1. When the provider is 'lennart-local'
  * Lennart Terminal starts the server automatically at boot, so opening the
  * app from a USB stick gives a working offline AI chat.
@@ -24,15 +24,27 @@ const LLAMA_RELEASE = 'b6969';
 const LLAMA_ZIP_URL =
   `https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_RELEASE}/llama-${LLAMA_RELEASE}-bin-win-cpu-x64.zip`;
 
-// The hardcoded offline PowerShell assistant. Chosen to be small enough for a
-// USB stick while still being genuinely useful for PowerShell one-liners.
+// The built-in offline assistant. Chosen by exam, not by guess:
+// scripts/eval-localai.js asks 12 real Danish support questions —
+//   Qwen2.5 Coder 3B   8/12 (10/12 with example turns)
+//   Gemma 3 4B         8/11 (and crashed the server)
+//   Qwen3 4B 2507     12/12  ← correct, on-topic, Danish, no loops
+// It is a non-thinking instruct model (no hidden <think> text) and still
+// runs on a plain CPU from a USB stick.
 const LOCAL_MODEL = {
-  id: 'qwen2.5-coder-1.5b-instruct-q4_k_m',
-  file: 'qwen2.5-coder-1.5b-instruct-q4_k_m.gguf',
-  url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf',
-  label: 'Qwen2.5 Coder 1.5B · PowerShell-assistent (offline)',
-  approxMB: 1065,
+  id: 'qwen3-4b-instruct-2507-q4_k_m',
+  file: 'Qwen3-4B-Instruct-2507-Q4_K_M.gguf',
+  url: 'https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf',
+  label: 'Qwen3 4B · indbygget assistent (offline)',
+  approxMB: 2382,
 };
+
+// Earlier built-in models. A saved choice of one of these is moved to the
+// new built-in model once (they failed too many real questions).
+const LEGACY_BUILTIN_IDS = [
+  'qwen2.5-coder-1.5b-instruct-q4_k_m',
+  'qwen2.5-coder-3b-instruct-q4_k_m',
+];
 
 // Downloadable models (Settings → “Hent modeller”).
 //
@@ -45,10 +57,17 @@ const LOCAL_MODEL = {
 // that still run on CPU with a 4096 context.
 const MODEL_CATALOG = [
   {
-    id: 'qwen2.5-coder-1.5b-instruct-q4_k_m',
+    id: LOCAL_MODEL.id,
     file: LOCAL_MODEL.file,
     url: LOCAL_MODEL.url,
-    label: 'Qwen2.5 Coder 1.5B · indbygget PowerShell-assistent',
+    label: 'Qwen3 4B · indbygget assistent (anbefalet)',
+    sizeMB: 2382,
+  },
+  {
+    id: 'qwen2.5-coder-1.5b-instruct-q4_k_m',
+    file: 'qwen2.5-coder-1.5b-instruct-q4_k_m.gguf',
+    url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf',
+    label: 'Qwen2.5 Coder 1.5B · lille og hurtig (svagere svar)',
     sizeMB: 1065,
   },
   {
@@ -115,7 +134,10 @@ function binName(platform) {
 
 function serverArgs(modelPath, port, threads, ctx) {
   const p = port || PORT;
-  const t = threads || Math.max(1, Math.min(4, (os.cpus().length || 2) - 1));
+  // Physical cores ≈ logical / 2. More threads than physical cores slows
+  // llama.cpp down; the old cap of 4 wasted fast 8–16 core PCs.
+  const logical = os.cpus().length || 2;
+  const t = threads || Math.max(2, Math.min(8, Math.floor(logical / 2)));
   const c = ctx || 4096;
   return ['-m', modelPath, '--host', '127.0.0.1', '--port', String(p), '-c', String(c), '-t', String(t)];
 }
@@ -498,6 +520,7 @@ class LocalAI {
 module.exports = {
   LocalAI,
   LOCAL_MODEL,
+  LEGACY_BUILTIN_IDS,
   MODEL_CATALOG,
   LLAMA_ZIP_URL,
   PORT,

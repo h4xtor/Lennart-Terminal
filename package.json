@@ -13,7 +13,8 @@
     "test": "node test/run-all.js",
     "check": "node scripts/check.js",
     "pack": "electron-builder --dir",
-    "dist": "electron-builder --win --x64 --publish never"
+    "dist": "electron-builder --win --x64 --publish never",
+    "store": "electron-builder --win appx --x64 --publish never --config electron-builder.store.js"
   },
   "dependencies": {
     "node-pty": "^1.1.0",

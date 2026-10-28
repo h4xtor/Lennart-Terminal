@@ -22,7 +22,7 @@ Prefer a folder? [Download the zip](https://github.com/h4xtor/Lennart-Terminal/r
 - **Focused AI knowledge** — every question only gets the matching knowledge cards (WinRM, SSH, RDP, ports, network, disk, services, …), so small offline models stay on topic instead of mixing subjects
 - **Loop guard** — a looping answer is stopped the moment it repeats itself, duplicates and leaked prompt text are removed, and cut-off answers are tidied with a note
 - **Agent mode** — describe a job ("find what's eating port 3000 and kill it") and the agent plans, runs commands in your terminal, reads the output and adapts until done. Live step-by-step view, Stop button, and a hard deny-list for dangerous commands
-- **Bring any AI** — **indbygget offline-model** (Qwen2.5 Coder, hardkodet — virker uden internet), local (Ollama, LM Studio, llama.cpp) or cloud (OpenRouter, **OmniRoute**, OpenAI, Claude, Gemini, Qwen, Kimi) or the locally installed Antigravity CLI as the agent brain
+- **Bring any AI** — **indbygget offline-model** (Qwen3 4B — virker uden internet, valgt ud fra en test med 12 rigtige supportspørgsmål), local (Ollama, LM Studio, llama.cpp) or cloud (OpenRouter, **OmniRoute**, OpenAI, Claude, Gemini, Qwen, Kimi) or the locally installed Antigravity CLI as the agent brain
 - **USB-portable** — put the folder (with a `Data` directory) on a USB stick and carry your terminal, AI, settings, hosts and **full history** between PCs. Perfect for troubleshooting machines on a LAN
 - **Network execution** — save hosts (SSH or WinRM) in the sidebar and run commands on remote PCs from dedicated remote tabs; output streams live and everything is logged
 - **Permanent history** — every command (local, remote, agent) and every AI Q&A is stored in `Data/history.jsonl`. Open it with the 📚 button or `Ctrl+H` and search across everything that has happened
@@ -38,7 +38,7 @@ Prefer a folder? [Download the zip](https://github.com/h4xtor/Lennart-Terminal/r
 
 Both are portable: a `Data` folder (settings, hosts, history, offline AI) is created next to the program, so it works straight from a USB stick. No Node.js, no installer.
 
-The built-in offline AI downloads its engine + model (~1 GB) on first use.
+The built-in offline AI downloads its engine + model (~2.4 GB) on first use.
 
 ### Option B — run from source
 

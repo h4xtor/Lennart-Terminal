@@ -42,10 +42,20 @@ function normCode(code) {
   return String(code).split('\n').map((l) => l.trim()).filter(Boolean).join('\n').toLowerCase();
 }
 
+/** "Kør dette på hver mål-PC:" — a lead-in may legitimately repeat. */
+function isLeadIn(line) {
+  return /:\s*\**\s*$/.test(String(line));
+}
+
 /**
  * Streaming guard.
- * opts.strict  — embedded small model: abort on the FIRST repeated line.
- *                Bigger models: abort only when a line shows up 3 times.
+ * opts.strict  — embedded small model: abort as soon as a repeat is clearly
+ *                a loop — the same line twice IN A ROW, the same two lines
+ *                again (a repeating sequence), or any line a third time.
+ *                Bigger models: only a line or code block 3 times.
+ * Lead-in lines ending with ":" may repeat (each step introduces its own
+ * code block) — they only count at the third time. The first version
+ * stopped a correct WinRM answer on its second "…på hver mål-PC:".
  * opts.onAbort — called once when a loop is detected.
  */
 function createAnswerGuard({ strict = true, onAbort } = {}) {
@@ -57,6 +67,8 @@ function createAnswerGuard({ strict = true, onAbort } = {}) {
   const seenCode = new Map();
   let numbered = 0;
   let stoppedLoop = false;
+  let lastKey = '';             // previous prose line (normalized)
+  const seenPairs = new Set();  // "prev\nkey" sequences
 
   const stop = () => {
     if (stoppedLoop) return;
@@ -74,6 +86,9 @@ function createAnswerGuard({ strict = true, onAbort } = {}) {
           // a code block repeated 3 times is a loop for any model
           if (n >= 3) stop();
         }
+        // the block itself is part of the sequence: "lead-in, block A" and
+        // "lead-in, block B" are different steps, not a repeat
+        lastKey = `code:${key}`;
         codeBuf = [];
       }
       inCode = !inCode;
@@ -90,7 +105,14 @@ function createAnswerGuard({ strict = true, onAbort } = {}) {
     if (key.length < MIN_LINE) return;
     const n = (seenLines.get(key) || 0) + 1;
     seenLines.set(key, n);
-    if (n >= (strict ? 2 : 3)) stop();
+    const pair = `${lastKey}\n${key}`;
+    const pairSeen = lastKey && seenPairs.has(pair);
+    if (lastKey) seenPairs.add(pair);
+    const consecutive = lastKey === key;
+    lastKey = key;
+    if (n >= 3) { stop(); return; }
+    if (!strict || n < 2) return;
+    if (consecutive || (pairSeen && !isLeadIn(line))) stop();
   };
 
   return {
@@ -149,7 +171,7 @@ function cleanAnswer(raw, { truncated = false, strict = true, note = truncated }
   let codeStart = -1;
   let codeLines = [];
 
-  for (const line of src.split('\n')) {
+  for (let line of src.split('\n')) {
     if (FENCE_RE.test(line)) {
       if (!inCode) {
         inCode = true;
@@ -160,8 +182,11 @@ function cleanAnswer(raw, { truncated = false, strict = true, note = truncated }
         inCode = false;
         const key = normCode(codeLines.join('\n'));
         if (!key || seenCode.has(key)) {
-          // empty or identical repeat of an earlier block → drop it entirely
+          // empty or identical repeat of an earlier block → drop it entirely,
+          // together with the lead-in line ("Kør dette:") that introduced it
           out.length = codeStart;
+          while (out.length && !out[out.length - 1].trim()) out.pop();
+          if (out.length && isLeadIn(out[out.length - 1])) out.pop();
           removed += 1;
         } else {
           seenCode.add(key);
@@ -178,12 +203,13 @@ function cleanAnswer(raw, { truncated = false, strict = true, note = truncated }
     if (RUN_MARKER_RE.test(line)) { runRequested = true; continue; }
     if (LEAK_RE.test(line)) { removed += 1; continue; }
 
+    line = danishFix(line);
     // "### Trin 2" → "**Trin 2**" (headings make small models restart)
     const heading = line.match(/^\s*#{1,6}\s+(.+?)\s*#*\s*$/);
     const prose = heading ? `**${heading[1].replace(/\*\*/g, '')}**` : line;
 
     const key = normLine(prose);
-    if (strict && key.length >= MIN_LINE) {
+    if (strict && key.length >= MIN_LINE && !isLeadIn(prose)) {
       if (seenLines.has(key)) { removed += 1; continue; }
       seenLines.add(key);
     }
@@ -195,6 +221,13 @@ function cleanAnswer(raw, { truncated = false, strict = true, note = truncated }
     else out.length = codeStart;
   }
 
+  // ```Ctrl+H``` on one line → `Ctrl+H` (the model's way of saying inline code)
+  for (let i = 0; i < out.length; i++) {
+    out[i] = out[i].replace(/```([^`\n]+?)```/g, '`$1`');
+  }
+  const fenced = autoFence(out);
+  if (fenced) { out.length = 0; out.push(...fenced); }
+
   // Collapse 3+ blank lines and trim
   let text = out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
   // Strip an inline trailing marker ("… KØRER") the model glued to a sentence
@@ -203,6 +236,57 @@ function cleanAnswer(raw, { truncated = false, strict = true, note = truncated }
     text += '\n\n_(Svaret blev afkortet — skriv “fortsæt”, hvis du vil have resten.)_';
   }
   return { text, runRequested, removed };
+}
+
+// A bare line that IS a command (no sentence around it)
+const COMMAND_LINE_RE = /^\s*(?:\$\w+\s*=|\(?(?:Get|Set|New|Remove|Start|Stop|Restart|Test|Enable|Disable|Add|Invoke|Enter|Clear|Resolve|Select|Sort|Where|Format|Out|Rename|Install|Update|Import|Export|Measure|Write|Copy|Move)-[A-Z][A-Za-z]+\b|(?:ipconfig|ping|netstat|tracert|nslookup|winget|sfc|DISM|chkdsk|powercfg|netsh|nvidia-smi|mstsc|quser|whoami|hostname|gpupdate|shutdown|tasklist|taskkill|winrm)(?:\.exe)?(?:\s|$))/;
+const SENTENCE_RE = /\s(er|viser|kan|skal|bruges|betyder|giver|hvis|fordi|så du|for at)\s/i;
+
+/**
+ * An answer WITHOUT any code block whose command sits on a bare line gets
+ * that line wrapped in a ```powershell block — otherwise the Kør button
+ * and auto-run have nothing to work with. Returns null when nothing changes.
+ */
+function autoFence(lines) {
+  if (lines.some((l) => FENCE_RE.test(l))) return null;
+  let changed = false;
+  const res = [];
+  let block = null;
+  for (const l of lines) {
+    const t = l.trim();
+    const isCmd = COMMAND_LINE_RE.test(t) && !SENTENCE_RE.test(` ${t} `) && !/[.!?]$/.test(t) && t.length < 400;
+    if (isCmd) {
+      if (!block) { block = []; }
+      block.push(t);
+      continue;
+    }
+    if (block) { res.push('```powershell', ...block, '```'); block = null; changed = true; }
+    res.push(l);
+  }
+  if (block) { res.push('```powershell', ...block, '```'); changed = true; }
+  return changed ? res : null;
+}
+
+// Small models slip into Norwegian now and then ("lar dig", "kørs").
+// Only unambiguous non-Danish words — never touches code or `inline code`.
+const NO_TO_DA = [
+  [/\blar (dig|dem|os|mig|det)\b/g, 'lader $1'],
+  [/\bLar (dig|dem|os|mig|det)\b/g, 'Lader $1'],
+  [/\bkørs\b/g, 'køres'],
+  [/\bkjør(e|er)?\b/g, (m, e) => `kør${e || ''}`],
+  [/\bgjøre\b/g, 'gøre'],
+  [/\bikkje\b/g, 'ikke'],
+  [/\bstegene\b/g, 'trinene'],
+  [/\btrinnene\b/g, 'trinene'],
+  [/\bfunktionerer\b/g, 'fungerer'],
+];
+function danishFix(line) {
+  return String(line).split(/(`[^`]*`)/).map((part, i) => {
+    if (i % 2) return part; // inline code stays untouched
+    let t = part;
+    for (const [re, to] of NO_TO_DA) t = t.replace(re, to);
+    return t;
+  }).join('');
 }
 
 /** Quality metrics for an answer (used by scripts/eval-localai.js + tests). */

@@ -20,7 +20,7 @@
 const PROVIDERS = {
   // ---- embedded (offline, hardcoded model — no setup) ----
   'lennart-local': {
-    label: 'Indbygget, offline (Qwen2.5 Coder · PowerShell)',
+    label: 'Indbygget, offline (Qwen3 4B)',
     group: 'Indbygget (offline)',
     protocol: 'openai',
     baseUrl: '',                 // resolved at runtime to the embedded llama.cpp server
@@ -362,7 +362,7 @@ async function chat(cfg, messages, { system, onToken, signal } = {}) {
   // the local llama-server instead of silently vanishing.
   const embedded = provider === 'lennart-local' || cfg.embeddedLocal === true;
 
-  // The embedded 1.5B/3B coder model rambles at the generic default — answer
+  // The embedded model rambles at the generic default — answer
   // slightly cooler and much shorter, unless the user set their own values.
   const fallbackTemp = embedded ? 0.3 : 0.4;
   const temperature = Number.isFinite(cfg.temperature) ? cfg.temperature : fallbackTemp;
@@ -726,7 +726,7 @@ async function consumeSse(res, onPayload) {
 // run it" (answer.js strips it from the visible text).
 // ---------------------------------------------------------------------------
 
-const { selectCards, renderCards } = require('./knowledge');
+const { selectCards, renderCards, exampleFor } = require('./knowledge');
 
 // Static part first: llama-server caches the shared prompt prefix, so only
 // the small VIDEN block at the end is re-processed per question.
@@ -772,6 +772,33 @@ function buildChatSystemPrompt({ embedded = true, question = '', previous = '' }
   return `${core}\n\nVIDEN (brug kun det, der passer til spørgsmålet):\n${renderCards(cards)}`;
 }
 
+/**
+ * Everything a chat turn needs: the system prompt plus the conversation,
+ * with ONE example exchange (question + model answer from the best
+ * matching knowledge card) in front for the small built-in model. Small
+ * models copy the shape of a real previous turn far more reliably than they
+ * follow written rules — short, Danish, "where to run it", code blocks.
+ * The example is never shown to the user and never stored in history.
+ */
+function buildChatTurns({ embedded = true, messages = [], extraSystem = [] } = {}) {
+  const users = messages.filter((m) => m.role === 'user');
+  const question = users.length ? users[users.length - 1].content : '';
+  const previous = users.length > 1 ? users[users.length - 2].content : '';
+  const cards = selectCards(question, previous, { max: embedded ? 2 : 3 });
+  const core = embedded ? EMBEDDED_CORE : CLOUD_CORE;
+  const system = [
+    `${core}\n\nVIDEN (brug kun det, der passer til spørgsmålet):\n${renderCards(cards)}`,
+    ...extraSystem,
+  ].filter(Boolean).join('\n\n');
+  const ex = embedded ? exampleFor(cards) : null;
+  // Only on the first question of a conversation: later turns already have
+  // real answers in the history to copy the shape from.
+  const turns = ex && users.length <= 1
+    ? [{ role: 'user', content: ex.q }, { role: 'assistant', content: ex.a }, ...messages]
+    : messages;
+  return { system, messages: turns, cards: cards.map((c) => c.id) };
+}
+
 /** Back-compat: the embedded prompt without a question (general card). */
 function buildPowerShellSystemPrompt(question) {
   return buildChatSystemPrompt({ embedded: true, question: question || '' });
@@ -792,6 +819,7 @@ module.exports = {
   buildAgentSystemPrompt,
   buildPowerShellSystemPrompt,
   buildChatSystemPrompt,
+  buildChatTurns,
   agyAvailable,
   listAgyModels,
   runAgyAgent,

@@ -40,6 +40,12 @@ const CARDS = [
       'I Lennart Terminal: “Tilføj vært…” → metode WinRM, IP, brugernavn og adgangskode → fjern-fanen kører kommandoerne på den PC.',
       'WinRM og SSH er to forskellige metoder — et WinRM-svar handler kun om WinRM.',
     ],
+    // Model answer shown to the small model as ONE example chat turn —
+    // it copies the shape (short, Danish, where-to-run, code block).
+    example: {
+      q: 'Hvordan sætter jeg WinRM op, så jeg kan køre kommandoer på flere PC\'er?',
+      a: 'WinRM lader din PC sende PowerShell-kommandoer til andre PC\'er på netværket — de kører dem og sender svaret tilbage.\n\nPå hver mål-PC (én gang, som administrator):\n```powershell\nEnable-PSRemoting -Force -SkipNetworkProfileCheck\n```\n\nPå din egen PC (som administrator), så den stoler på PC\'erne på netværket:\n```powershell\nSet-Item WSMan:\\localhost\\Client\\TrustedHosts -Value "192.168.1.*" -Force\n```\n\nKør så en kommando på alle PC\'er på én gang:\n```powershell\nInvoke-Command -ComputerName PC01,PC02,PC03 -Credential (Get-Credential) -ScriptBlock { hostname }\n```\n\nBruger I lokale konti uden domæne, så kør også dette på hver mål-PC:\n```powershell\nNew-ItemProperty -Path "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" -Name LocalAccountTokenFilterPolicy -Value 1 -PropertyType DWord -Force\n```',
+    },
   },
   {
     id: 'ssh',
@@ -55,6 +61,12 @@ const CARDS = [
       'Nøgle uden adgangskode: ssh-keygen -t ed25519 (offentlig nøgle i C:\\Users\\<bruger>\\.ssh\\id_ed25519.pub).',
       'I Lennart Terminal: Setup → “Slå SSH til”, og “Tilføj vært…” med metoden SSH.',
     ],
+    // Model answer shown to the small model as ONE example chat turn —
+    // it copies the shape (short, Danish, where-to-run, code block).
+    example: {
+      q: 'Hvordan slår jeg SSH til på en PC?',
+      a: 'Kør dette på PC\'en som administrator — det installerer SSH-serveren og starter den automatisk:\n```powershell\nAdd-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service sshd; Set-Service sshd -StartupType Automatic\n```\n\nTest bagefter fra din egen PC (ret IP\'en):\n```powershell\nTest-NetConnection 192.168.1.50 -Port 22\n```',
+    },
   },
   {
     id: 'rdp',
@@ -68,6 +80,12 @@ const CARDS = [
       'Hvem er logget på: quser',
       'I Lennart Terminal: Setup → “Slå RDP til”.',
     ],
+    // Model answer shown to the small model as ONE example chat turn —
+    // it copies the shape (short, Danish, where-to-run, code block).
+    example: {
+      q: 'Hvordan slår jeg fjernskrivebord til?',
+      a: 'Kør dette som administrator på den PC, du vil forbinde til:\n```powershell\nSet-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server" -Name fDenyTSConnections -Value 0; Enable-NetFirewallRule -DisplayGroup "Remote Desktop"\n```\n\nForbind derefter fra din egen PC med `mstsc /v:192.168.1.50` (ret IP\'en).',
+    },
   },
   {
     id: 'ports',
@@ -84,6 +102,12 @@ const CARDS = [
       'Klassisk alternativ: netstat -ano | findstr :3000',
       'Tungeste processer: Get-Process | Sort-Object CPU -Descending | Select-Object -First 10 Name,Id,CPU',
     ],
+    // Model answer shown to the small model as ONE example chat turn —
+    // it copies the shape (short, Danish, where-to-run, code block).
+    example: {
+      q: 'Hvem bruger port 8080?',
+      a: 'Denne linje viser navnet på programmet, der lytter på port 8080:\n```powershell\nGet-Process -Id (Get-NetTCPConnection -LocalPort 8080 -State Listen).OwningProcess\n```\n\nVil du lukke det, så brug `Stop-Process -Id <PID>` — men gem dit arbejde først, for programmet lukker med det samme.',
+    },
   },
   {
     id: 'network',
@@ -101,6 +125,12 @@ const CARDS = [
       'Wi-Fi: netsh wlan show interfaces · gemt kode: netsh wlan show profile name="NAVN" key=clear',
       'Offentlig IP: (Invoke-WebRequest -UseBasicParsing https://api.ipify.org).Content',
     ],
+    // Model answer shown to the small model as ONE example chat turn —
+    // it copies the shape (short, Danish, where-to-run, code block).
+    example: {
+      q: 'Internettet virker ikke rigtigt, hvad gør jeg?',
+      a: 'Tjek først om forbindelsen virker, og om navne kan slås op:\n```powershell\nping 8.8.8.8 -n 4; Resolve-DnsName google.com\n```\n\nVirker ping men ikke navneopslaget, er det DNS. Ryd så DNS-cachen:\n```powershell\nipconfig /flushdns\n```',
+    },
   },
   {
     id: 'disk',
@@ -116,6 +146,12 @@ const CARDS = [
       'Temp-mappen: mål først med Get-ChildItem $env:TEMP -Recurse -File | Measure-Object Length -Sum, ryd så med Remove-Item "$env:TEMP\\*" -Recurse -Force -ErrorAction SilentlyContinue (advar: sletter filer).',
       'Diskens sundhed: Get-PhysicalDisk | Select-Object FriendlyName,MediaType,HealthStatus · fejltjek: chkdsk C: /scan',
     ],
+    // Model answer shown to the small model as ONE example chat turn —
+    // it copies the shape (short, Danish, where-to-run, code block).
+    example: {
+      q: 'Hvordan ser jeg hvor meget plads der er på C?',
+      a: 'Denne linje viser ledig plads i GB på alle dine drev:\n```powershell\nGet-PSDrive -PSProvider FileSystem | Select-Object Name,@{n="Fri GB";e={[math]::Round($_.Free/1GB,1)}}\n```\n\nEr C næsten fuld, er temp-mappen og Overførsler gode steder at rydde op.',
+    },
   },
   {
     id: 'services',
@@ -131,6 +167,12 @@ const CARDS = [
       'Tjenester der skulle køre men er stoppet: Get-Service | Where-Object {$_.StartType -eq "Automatic" -and $_.Status -ne "Running"}',
       'Start automatisk: Set-Service NAVN -StartupType Automatic',
     ],
+    // Model answer shown to the small model as ONE example chat turn —
+    // it copies the shape (short, Danish, where-to-run, code block).
+    example: {
+      q: 'Lyden er gået — hvordan genstarter jeg lydtjenesten?',
+      a: 'Genstart Windows\' lydtjeneste (kør som administrator):\n```powershell\nRestart-Service Audiosrv -Force\n```\n\nTjek bagefter at den kører med `Get-Service Audiosrv`.',
+    },
   },
   {
     id: 'performance',
@@ -145,6 +187,12 @@ const CARDS = [
       'Oppetid (genstart hjælper ofte): (Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime',
       'Fri RAM: Get-CimInstance Win32_OperatingSystem | Select-Object @{n="Fri GB";e={[math]::Round($_.FreePhysicalMemory/1MB,1)}}',
     ],
+    // Model answer shown to the small model as ONE example chat turn —
+    // it copies the shape (short, Danish, where-to-run, code block).
+    example: {
+      q: 'Hvorfor kører min computer så tungt?',
+      a: 'Start med at se hvilke programmer der bruger mest CPU:\n```powershell\nGet-Process | Sort-Object CPU -Descending | Select-Object -First 10 Name,Id,CPU\n```\n\nOg hvilke der bruger mest hukommelse:\n```powershell\nGet-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 10 Name,@{n="MB";e={[math]::Round($_.WorkingSet64/1MB)}}\n```\n\nHar PC\'en ikke været genstartet længe, hjælper en genstart ofte.',
+    },
   },
   {
     id: 'repair',
@@ -158,6 +206,12 @@ const CARDS = [
       'Reparér Windows-filer (som administrator, i denne rækkefølge): sfc /scannow — derefter DISM /Online /Cleanup-Image /RestoreHealth',
       'Opdateringer installeret: Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 10',
     ],
+    // Model answer shown to the small model as ONE example chat turn —
+    // it copies the shape (short, Danish, where-to-run, code block).
+    example: {
+      q: 'Windows opfører sig mærkeligt, kan jeg reparere det?',
+      a: 'Kør Windows\' egen reparation som administrator — først filtjekket:\n```powershell\nsfc /scannow\n```\n\nFinder den fejl, den ikke kan rette, så kør bagefter:\n```powershell\nDISM /Online /Cleanup-Image /RestoreHealth\n```',
+    },
   },
   {
     id: 'security',
@@ -173,6 +227,12 @@ const CARDS = [
       'Er jeg administrator: whoami /groups | findstr /i "S-1-5-32-544"',
       'BitLocker: manage-bde -status · TPM: Get-Tpm',
     ],
+    // Model answer shown to the small model as ONE example chat turn —
+    // it copies the shape (short, Danish, where-to-run, code block).
+    example: {
+      q: 'Er min antivirus slået til?',
+      a: 'Denne linje viser om Microsoft Defender kører, og hvornår den sidst blev opdateret:\n```powershell\nGet-MpComputerStatus | Select-Object AMServiceEnabled,RealTimeProtectionEnabled,AntivirusSignatureLastUpdated\n```\n\nStår der True ved de to første, er du beskyttet.',
+    },
   },
   {
     id: 'gpu',
@@ -186,6 +246,12 @@ const CARDS = [
       'Strømplan: powercfg /getactivescheme · alle planer: powercfg /list',
       'Batterirapport: powercfg /batteryreport (gemmes som HTML i den aktuelle mappe).',
     ],
+    // Model answer shown to the small model as ONE example chat turn —
+    // it copies the shape (short, Danish, where-to-run, code block).
+    example: {
+      q: 'Hvor varmt er mit grafikkort?',
+      a: 'Har du et NVIDIA-kort, viser denne linje temperatur og belastning:\n```powershell\nnvidia-smi --query-gpu=name,temperature.gpu,utilization.gpu --format=csv\n```\n\nUnder ca. 80 °C under spil er normalt.',
+    },
   },
   {
     id: 'software',
@@ -200,6 +266,12 @@ const CARDS = [
       'Windows-version og model: Get-ComputerInfo | Select-Object OsName,OsVersion,CsModel',
       'PC-navn: $env:COMPUTERNAME · omdøb (som administrator, kræver genstart): Rename-Computer -NewName "PC01"',
     ],
+    // Model answer shown to the small model as ONE example chat turn —
+    // it copies the shape (short, Danish, where-to-run, code block).
+    example: {
+      q: 'Hvordan installerer jeg VLC?',
+      a: 'Brug winget, der er indbygget i Windows:\n```powershell\nwinget install --id VideoLAN.VLC -e\n```\n\nKender du ikke programmets id, så find det med `winget search vlc`.',
+    },
   },
   {
     id: 'app',
@@ -216,6 +288,12 @@ const CARDS = [
       'Fjern-PC: “Tilføj vært…” (SSH eller WinRM) → klik værten → fjern-fane, hvor alt køres på den PC.',
       'Modeller: Setup → “Hent modeller” henter større offline-modeller (fx Qwen2.5 Coder 7B). Historik: Ctrl+H. Alt kan ligge på et USB-stik i Data-mappen.',
     ],
+    // Model answer shown to the small model as ONE example chat turn —
+    // it copies the shape (short, Danish, where-to-run, code block).
+    example: {
+      q: 'Hvordan åbner jeg en ny fane?',
+      a: 'Tryk **Ctrl+T** — eller klik **New Tab** øverst i venstre side. Du lukker en fane igen med **Ctrl+W**.',
+    },
   },
 ];
 
@@ -266,4 +344,10 @@ function renderCards(cards) {
     .join('\n\n');
 }
 
-module.exports = { CARDS, GENERAL_CARD, selectCards, renderCards, scoreCard };
+/** The example turn (question + model answer) of the best matching card. */
+function exampleFor(cards) {
+  const c = (cards || []).find((x) => x && x.example);
+  return c ? c.example : null;
+}
+
+module.exports = { CARDS, GENERAL_CARD, selectCards, renderCards, scoreCard, exampleFor };
