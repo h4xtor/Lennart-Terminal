@@ -486,12 +486,18 @@ ptyManager.on('exit', (id, code) => {
 ipcMain.handle('settings:get', () => settings.getAll());
 
 ipcMain.handle('settings:set', (_e, patch) => {
+  const previousLocalAI = settings.get('localAI') || {};
   settings.set(patch);
-  // Model settings changed → apply to the embedded AI server; stop it so
-  // the next chat restarts llama-server with the new ctx/threads.
+  // Only restart the embedded AI when ctx/threads really changed. The renderer
+  // sends the whole localAI block on every save (theme, agent, …), so stopping
+  // unconditionally made "AI: Online" flip to idle after any settings save.
   if (patch && patch.localAI) {
-    localAI.configure(settings.get('localAI') || {});
-    localAI.stop();
+    const next = settings.get('localAI') || {};
+    if (Number(next.ctx) !== Number(previousLocalAI.ctx) ||
+        Number(next.threads) !== Number(previousLocalAI.threads)) {
+      localAI.configure(next);
+      localAI.stop();
+    }
   }
   return settings.getAll();
 });

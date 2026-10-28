@@ -6,9 +6,9 @@ An AI-inspired terminal for Windows with an integrated **AI agent** — chat wit
 
 ## Features
 
-- **UI** — dark theme, left sidebar with shells, tabbed terminals, and the signature bottom prompt box
+- **UI** — dark and light themes, left sidebar with shells, tabbed terminals, and the signature bottom prompt box
 - **Real PTY sessions** — full-color PowerShell / PowerShell 7 / cmd / Git Bash tabs (ConPTY via node-pty)
-- **AI chat panel** — streaming answers with command code blocks; every block gets **Copy / Insert / Run** buttons (Run types it into the active tab)
+- **AI chat panel** — streaming answers with command code blocks; every block gets **Kopiér / Indsæt / Kør** buttons (Kør types it into the active tab)
 - **Agent mode** — describe a job ("find what's eating port 3000 and kill it") and the agent plans, runs commands in your terminal, reads the output and adapts until done. Live step-by-step view, Stop button, and a hard deny-list for dangerous commands
 - **Bring any AI** — **indbygget offline-model** (Qwen2.5 Coder, hardkodet — virker uden internet), local (Ollama, LM Studio, llama.cpp) or cloud (OpenRouter, **OmniRoute**, OpenAI, Claude, Gemini, Qwen, Kimi) or the locally installed Antigravity CLI as the agent brain
 - **USB-portable** — put the folder (with a `Data` directory) on a USB stick and carry your terminal, AI, settings, hosts and **full history** between PCs. Perfect for troubleshooting machines on a LAN
@@ -65,7 +65,7 @@ Unplug, walk to the next PC, plug in, run — your AI, your hosts, your history,
 Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service sshd; Set-Service sshd -StartupType Automatic; New-NetFirewallRule -Name sshd -DisplayName "OpenSSH Server" -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
 ```
 
-4. Click the host in the sidebar → a remote tab opens. Type commands in the bottom prompt box — they execute **on that PC**, stream output live, and land in the permanent history marked `REMOTE`.
+4. Click the host in the sidebar → a remote tab opens. Type commands in the bottom prompt box — they execute **on that PC**, stream output live, and land in the permanent history marked **Netværk**.
 
 ## Connect an AI
 
@@ -167,7 +167,7 @@ Runs the AI layer against mock local servers (no Ollama required) and verifies m
 
 ## Security notes
 
-- API keys live in `%APPDATA%\Lennart Terminal\settings.json` — never commit this file, never paste keys into issues
+- API keys live in `%APPDATA%\Lennart Terminal\settings.json` (or `Data\settings.json` in portable mode) — never commit this file, never paste keys into issues
 - The agent's destructive-command confirmation can be relaxed in Indstillinger, but the hard deny-list (`format`, `diskpart`, `bcdedit`, …) cannot
 - Terminal output is only sent to your configured AI provider when you attach it
 

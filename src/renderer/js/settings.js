@@ -440,13 +440,14 @@ function updateAiHeaderModel() {
   const s = window.__lennartSettings || {};
   const pid = (s.ai && s.ai.provider) || 'lennart-local';
   const info = (window.__providerCatalog && window.__providerCatalog.providers[pid]) || {};
-  let model = (s.ai && s.ai.model) || 'ingen model';
-  if (pid === 'lennart-local') {
-    model = (s.ai && s.ai.model) ? s.ai.model : 'indbygget model';
-  }
+  // The built-in provider's label already names the model, so don't repeat
+  // "indbygget model" when the user has not picked a specific GGUF file.
+  // The built-in provider's label already names the model family; the exact
+  // GGUF id is long and belongs in Settings, not in the header.
+  const model = pid === 'lennart-local' ? '' : ((s.ai && s.ai.model) || 'ingen model');
   const fallbackLabel = pid === 'lennart-local' ? 'Indbygget AI (offline)' : pid;
   const el = document.getElementById('ai-model-label');
-  if (el) el.textContent = `${info.label || fallbackLabel} · ${model}`;
+  if (el) el.textContent = [info.label || fallbackLabel, model].filter(Boolean).join(' · ');
 }
 
 window.__updateAiHeaderModel = updateAiHeaderModel;

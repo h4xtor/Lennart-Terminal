@@ -548,7 +548,9 @@ async function runAiCommand(cmd) {
 // ---------------------------------------------------------------------------
 
 function userWantsExecution(text) {
-  return /(kør|kore|udfør|udfoer|udføre|execut|run it|kører den|udfør den)/i.test(String(text || ''));
+  // Must be a request to execute — “kørende” (running) must NOT match “kør”.
+  const t = String(text || '').toLowerCase();
+  return /(^|[\s,.!?;:])(k(?:ø|o)r|udf(?:ø|o)r(?:e)?|execut(?:e|e it)?|run it|k(?:ø|o)r den|k(?:ø|o)r det|udf(?:ø|o)r den)(?=$|[\s,.!?;:])/i.test(t);
 }
 
 function extractRunCommand(answer) {

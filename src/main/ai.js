@@ -501,32 +501,34 @@ function runAgyAgent({ prompt, cwd, onEvent, signal, model, allowTools }) {
       try { child.kill(); } catch { /* ignore */ }
     });
 
+    const handleLine = (line) => {
+      const t = line.trim();
+      if (!t) return;
+      try {
+        const ev = JSON.parse(t);
+        // agy stream-json: step_update carries text_delta / tool steps,
+        // result carries the final response
+        if (ev.event === 'step_update' && ev.step_update) {
+          const su = ev.step_update;
+          if (typeof su.text_delta === 'string' && su.text_delta) {
+            fullText += su.text_delta;
+            onEvent && onEvent({ type: 'text', text: su.text_delta });
+          } else if (su.step_type && su.step_type !== 'user_input' && su.step_type !== 'agent_response') {
+            onEvent && onEvent({ type: 'tool', name: su.step_type, detail: su.state || '' });
+          }
+        } else if (ev.event === 'result' && ev.result) {
+          if (typeof ev.result.response === 'string' && ev.result.response) {
+            fullText = ev.result.response;
+          }
+        }
+      } catch { /* non-JSON line (banners etc.) */ }
+    };
+
     child.stdout.on('data', (d) => {
       buf += d.toString();
       const lines = buf.split('\n');
       buf = lines.pop() || '';
-      for (const line of lines) {
-        const t = line.trim();
-        if (!t) continue;
-        try {
-          const ev = JSON.parse(t);
-          // agy stream-json: step_update carries text_delta / tool steps,
-          // result carries the final response
-          if (ev.event === 'step_update' && ev.step_update) {
-            const su = ev.step_update;
-            if (typeof su.text_delta === 'string' && su.text_delta) {
-              fullText += su.text_delta;
-              onEvent && onEvent({ type: 'text', text: su.text_delta });
-            } else if (su.step_type && su.step_type !== 'user_input' && su.step_type !== 'agent_response') {
-              onEvent && onEvent({ type: 'tool', name: su.step_type, detail: su.state || '' });
-            }
-          } else if (ev.event === 'result' && ev.result) {
-            if (typeof ev.result.response === 'string' && ev.result.response) {
-              fullText = ev.result.response;
-            }
-          }
-        } catch { /* non-JSON line (banners etc.) */ }
-      }
+      for (const line of lines) handleLine(line);
     });
 
     child.stderr.on('data', (d) => {
@@ -542,8 +544,17 @@ function runAgyAgent({ prompt, cwd, onEvent, signal, model, allowTools }) {
       ));
     });
     child.on('close', (code) => {
-      if (code === 0) resolve({ text: fullText });
-      else reject(new Error(`agy afsluttede med kode ${code}`));
+      // The last JSON event may arrive without a trailing newline.
+      if (buf.trim()) handleLine(buf);
+      if (signal && signal.aborted) {
+        const err = new Error('agy afbrudt');
+        err.name = 'AbortError';
+        reject(err);
+      } else if (code === 0) {
+        resolve({ text: fullText });
+      } else {
+        reject(new Error(`agy afsluttede med kode ${code}`));
+      }
     });
   });
 }

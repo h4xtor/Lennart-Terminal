@@ -177,7 +177,11 @@ function launchApp(profile, port) {
   const exe = electronExe();
   if (!exe) throw new Error('Electron blev ikke fundet — kør "npm ci" først.');
 
-  const child = spawn(exe, ['.', `--remote-debugging-port=${port}`], {
+  // --user-data-dir gives this instance its own single-instance lock. Setting
+  // APPDATA alone does not isolate the lock on Windows, so the test used to
+  // fail whenever the user already had Lennart Terminal open.
+  const userDataDir = path.join(profile.appdata, 'Lennart Terminal');
+  const child = spawn(exe, ['.', `--user-data-dir=${userDataDir}`, `--remote-debugging-port=${port}`], {
     cwd: ROOT,
     env: {
       ...process.env,

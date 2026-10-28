@@ -261,10 +261,11 @@ async function main() {
   const label = await evaluate(`document.getElementById('ai-model-label').textContent`);
   assert(label.includes('Indbygget'), `AI header shows embedded model ("${label}")`);
   const selectedModel = await evaluate(`(window.__lennartSettings && window.__lennartSettings.ai && window.__lennartSettings.ai.model) || ''`);
-  assert(
-    selectedModel ? label.includes(selectedModel) : label.includes('indbygget model'),
-    `AI header shows the selected model ("${label}" vs "${selectedModel || 'indbygget model'}")`,
-  );
+  const provider = await evaluate(`(window.__lennartSettings && window.__lennartSettings.ai && window.__lennartSettings.ai.provider) || ''`);
+  const headerOk = provider === 'lennart-local'
+    ? !/·\s*indbygget model/i.test(label)
+    : (selectedModel ? label.includes(selectedModel) : true);
+  assert(headerOk, `AI header is concise and accurate ("${label}")`);
 
   // The suggestion chips in the AI pane must be Danish
   const sugg = JSON.parse(await evaluate(`JSON.stringify(

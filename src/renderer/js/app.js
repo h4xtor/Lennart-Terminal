@@ -424,6 +424,12 @@ async function refreshAiStatus() {
       // silently start a 1 GB download. Report state only.
       const st = await window.lennart.localaiStatus();
       dot.className = `status-dot ${st.running ? 'ok' : 'err'}`;
+      if (st.lastError) {
+        text.textContent = 'AI: Fejl';
+        text.title = st.lastError;
+        return;
+      }
+      text.title = '';
       text.textContent = st.running
         ? 'AI: Online · indbygget'
         : (st.binary && st.model ? 'AI: Offline (starter…)' : 'AI: Offline (henter…)');
@@ -508,6 +514,9 @@ function wireSettingsEvents() {
     await window.lennart.resetSettings();
     window.__lennartSettings = await window.lennart.getSettings();
     applyFontScale();
+    applyTheme();
+    const agentState = document.getElementById('agent-mode-state');
+    if (agentState) agentState.textContent = window.__lennartSettings.agentMode === false ? 'Fra' : 'Til';
     if (window.__updateAiHeaderModel) window.__updateAiHeaderModel();
     await refreshAiStatus();
     loadSettingsUi();
