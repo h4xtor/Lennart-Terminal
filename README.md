@@ -133,6 +133,18 @@ npm run check   :: fast node --check syntax gate over all JS
 npm test        :: offline AI-layer tests (no provider needed)
 ```
 
+### Windows smoke test (one command)
+
+Double-click **`test-lennart.cmd`** to run the syntax check, the automated tests and a real UI smoke test. It starts the app in a temporary profile, so your settings, history and the embedded AI model are untouched. A small local stub answers the AI endpoint, which means **no internet and no ~1 GB model download** are needed.
+
+The UI test checks the Danish labels, that a command typed directly in the terminal lands in the history, that the bottom prompt box still records commands, that the agent settings are remembered, and that a new tab inherits the selected theme. It needs Node.js 22+ and `npm ci`.
+
+Run only the UI smoke test (without the two other gates):
+
+```cmd
+npm run smoke
+```
+
 Releases are automated: push a tag (`git tag v0.2.0 && git push origin v0.2.0`) and GitHub Actions builds the portable zip and publishes the release. The workflow runs are public: [github.com/h4xtor/Lennarts-Terminal/actions](https://github.com/h4xtor/Lennarts-Terminal/actions).
 
 ## Project layout
