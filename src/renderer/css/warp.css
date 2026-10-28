@@ -22,7 +22,9 @@
   --sans: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
   --titlebar-h: 40px;
   --menubar-h: 30px;
-  --sidebar-w: 248px;
+  /* 264px + stable scrollbar gutter leaves enough width for the two-column
+     shell labels; without the gutter a saved host's scrollbar clipped them. */
+  --sidebar-w: 264px;
   --ai-w: 380px;
 }
 
@@ -1017,6 +1019,7 @@ input[type="text"]:focus, input[type="password"]:focus, select:focus, textarea:f
 #sidebar {
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
 }

@@ -453,7 +453,9 @@ async function main() {
       typeAi: ((document.querySelector('#history-type option[value="ai"]') || {}).textContent || '').trim(),
       version: ((document.getElementById('version-tag') || {}).textContent || '').trim(),
       xtermHelpers: (() => { const h = document.querySelector('.xterm-helpers');
-        return h ? getComputedStyle(h).position : ''; })()
+        return h ? getComputedStyle(h).position : ''; })(),
+      cmdClipped: (() => { const b = document.querySelector('.shell-btn[data-shell="cmd"]');
+        return b ? b.scrollWidth > b.clientWidth : true; })()
     })`));
 
     assert(ui.lang === 'da', `siden er markeret som dansk (lang="${ui.lang}")`);
@@ -463,6 +465,7 @@ async function main() {
     assert(ui.settingsTitleAttr === 'Indstillinger (Ctrl+,)', `tandhjulet har dansk værktøjstip`);
     assert(ui.historyTitleAttr === 'Historik (Ctrl+H)', `historik-knappen har dansk værktøjstip`);
     assert(ui.cmdLabel === 'Kommandoprompt', `cmd-knappen hedder "Kommandoprompt" (${ui.cmdLabel})`);
+    assert(!ui.cmdClipped, 'kommandoprompt-label er ikke klippet');
     assert(ui.newTabLabel.includes('Ny fane'), `ny-fane-knappen er oversat (${ui.newTabLabel})`);
     assert(
       ui.promptHint.includes('Spørg AI (Ctrl+Enter)') && ui.promptHint.includes('eller skriv en kommando'),
