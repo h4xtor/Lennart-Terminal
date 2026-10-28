@@ -68,3 +68,45 @@ jobs:
           if (-not $ok) { throw 'Lennart Terminal did not start (no process or no Data\settings.json)' }
           Write-Host 'OK: Lennart Terminal is running and created Data\settings.json next to the EXE'
           Get-Process | Where-Object { $_.Name -match 'Lennart' } | Stop-Process -Force
+
+  # Microsoft Store package (MSIX/APPX). Uses the real Partner Center identity
+  # when the repo variables are set, placeholders otherwise.
+  store-package:
+    runs-on: windows-latest
+    env:
+      STORE_IDENTITY_NAME: ${{ vars.STORE_IDENTITY_NAME }}
+      STORE_PUBLISHER: ${{ vars.STORE_PUBLISHER }}
+      STORE_PUBLISHER_NAME: ${{ vars.STORE_PUBLISHER_NAME }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build Store package
+        run: npm run store
+      - name: Check the package
+        shell: pwsh
+        run: |
+          $pkg = Get-ChildItem dist-store -Filter *.appx | Select-Object -First 1
+          if (-not $pkg) { throw 'no .appx produced' }
+          Write-Host ("Store package: {0} ({1} MB)" -f $pkg.Name, [math]::Round($pkg.Length / 1MB, 1))
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [IO.Compression.ZipFile]::OpenRead($pkg.FullName)
+          $names = $zip.Entries.FullName
+          $manifest = (New-Object IO.StreamReader(($zip.Entries | Where-Object FullName -eq 'AppxManifest.xml').Open())).ReadToEnd()
+          $zip.Dispose()
+          if (-not ($names -contains 'AppxManifest.xml')) { throw 'AppxManifest.xml missing' }
+          foreach ($need in @('Lennart Terminal.exe', 'app.asar')) {
+            if (-not ($names | Where-Object { $_ -like "*$need" })) { throw "missing in package: $need" }
+          }
+          Write-Host ($names | Where-Object { $_ -like '*.exe' -or $_ -like '*app.asar' } | Out-String)
+          if ($manifest -notmatch 'runFullTrust') { throw 'manifest lacks runFullTrust' }
+          Write-Host 'OK: package has the app, the manifest and full-trust capability'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: store-package
+          path: dist-store/*.appx
+

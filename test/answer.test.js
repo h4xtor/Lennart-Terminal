@@ -105,7 +105,60 @@ function testGuardFinishFlags() {
   console.log('PASS clean answers pass through');
 }
 
+function testRealFalsePositives() {
+  // 1. A correct WinRM answer: two steps on the target PC share a lead-in.
+  //    The first guard version killed this answer at the second lead-in.
+  const winrm = [
+    'WinRM lader din PC styre andre PC\'er.',
+    '',
+    'Kør følgende kommando på hver mål-PC:',
+    `${FENCE}powershell`,
+    'Enable-PSRemoting -Force -SkipNetworkProfileCheck',
+    FENCE,
+    'Kør følgende kommando på hver mål-PC:',
+    `${FENCE}powershell`,
+    'Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private',
+    FENCE,
+    'Kør følgende på din egen PC:',
+    `${FENCE}powershell`,
+    'Set-Item WSMan:\\localhost\\Client\\TrustedHosts -Value "192.168.1.*" -Force',
+    FENCE,
+    '',
+  ].join('\n');
+  let aborted = false;
+  const g = createAnswerGuard({ strict: true, onAbort: () => { aborted = true; } });
+  feed(g, winrm);
+  assert.ok(!aborted, 'a repeated lead-in before DIFFERENT commands is not a loop');
+  const res = g.finish();
+  assert.strictEqual(res.text.split('Kør følgende kommando på hver mål-PC:').length - 1, 2, 'both lead-ins are kept');
+  assert.ok(res.text.includes('TrustedHosts'), 'the whole answer survives');
+
+  // 2. A repeating SEQUENCE is a loop even when each line is "new" text-wise
+  const seq = 'Tjek kablet til routeren først.\nGenstart derefter routeren helt.\nTjek kablet til routeren først.\nGenstart derefter routeren helt.\n';
+  let stopped = false;
+  feed(createAnswerGuard({ onAbort: () => { stopped = true; } }), seq);
+  assert.ok(stopped, 'a repeating two-line sequence is stopped');
+
+  // 3. The spooler answer had the right command but no code block → no Kør button
+  const bare = cleanAnswer('Genstart print-køen:\nStop-Service Spooler -Force; Start-Service Spooler');
+  assert.ok(/```powershell\nStop-Service Spooler -Force; Start-Service Spooler\n```/.test(bare.text), 'a bare command line is wrapped in a powershell block');
+  assert.ok(!/```/.test(cleanAnswer('Get-Process viser hvilke programmer der kører.').text), 'a sentence about a cmdlet is not fenced');
+
+  // 4. ```Ctrl + H``` used as inline code
+  assert.ok(cleanAnswer('Tryk ```Ctrl+H``` for historik.').text.includes('`Ctrl+H`'), 'one-line triple backticks become inline code');
+
+  // 5. A dropped duplicate code block takes its lead-in with it
+  const dup = cleanAnswer(`Kør dette:\n${FENCE}powershell\nipconfig /all\n${FENCE}\nOg igen her:\n${FENCE}powershell\nipconfig /all\n${FENCE}`);
+  assert.ok(!dup.text.includes('Og igen her:'), 'lead-in of a removed duplicate block is removed too');
+  // 6. Norwegian slips are fixed in prose, never in code
+  const no = cleanAnswer('WinRM lar dig styre PC\'er, det kørs som admin.\n```powershell\n$lar = 1\n```\nBrug `lar dig` ikke.');
+  assert.ok(no.text.startsWith('WinRM lader dig styre PC\'er, det køres som admin.'), 'lar dig → lader dig, kørs → køres');
+  assert.ok(no.text.includes('$lar = 1') && no.text.includes('`lar dig`'), 'code and inline code untouched');
+  console.log('PASS real false positives (repeated lead-ins, bare commands, inline fences)');
+}
+
 testStopsRepeatedBullet();
+testRealFalsePositives();
 testRunawayNumbering();
 testLenientForBigModels();
 testCleanup();

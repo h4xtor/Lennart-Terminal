@@ -107,6 +107,7 @@ class SettingsStore {
     this.data = this._load();
     this._migrateStaleProvider();
     this._migrateLocalAiCtx();
+    this._migrateBuiltinModel();
     this._write();
   }
 
@@ -117,6 +118,24 @@ class SettingsStore {
    * default (4096) — an explicit 2048 (weak PC) or 8192/16384 choice is the
    * user's decision and stays untouched.
    */
+  /**
+   * v0.5: the built-in model became Qwen3 4B (12/12 in the answer exam vs
+   * 8/12 for the old Qwen2.5 Coder models). A saved pick of an OLD built-in
+   * model is cleared once, so everybody gets the smart one. Users who chose
+   * a bigger catalogue model (7B/8B) keep their choice.
+   */
+  _migrateBuiltinModel() {
+    if (!this.data || Number(this.data.builtinModelVersion) >= 2) return;
+    // eslint-disable-next-line global-require
+    const { LEGACY_BUILTIN_IDS } = require('./localai');
+    const legacy = new Set(LEGACY_BUILTIN_IDS);
+    const ai = this.data.ai || {};
+    if (legacy.has(ai.model)) ai.model = '';
+    const stored = (this.data.providers || {})['lennart-local'];
+    if (stored && legacy.has(stored.model)) stored.model = '';
+    this.data.builtinModelVersion = 2;
+  }
+
   _migrateLocalAiCtx() {
     const lai = this.data && this.data.localAI;
     if (lai && Number(lai.ctx) === 4096) {

@@ -15,7 +15,7 @@ const fs = require('fs');
 const os = require('os');
 const SettingsStore = require('./store');
 const TerminalManager = require('./pty');
-const { chat, listModels, buildChatSystemPrompt, PROVIDERS, PROVIDER_GROUPS, listAgyModels, agyAvailable } = require('./ai');
+const { chat, listModels, buildChatTurns, PROVIDERS, PROVIDER_GROUPS, listAgyModels, agyAvailable } = require('./ai');
 const { createAnswerGuard } = require('./answer');
 const { AgentSession } = require('./agent');
 const { LocalAI, LOCAL_MODEL } = require('./localai');
@@ -344,6 +344,10 @@ function relaunchElevated() {
 function maybeOfferElevation() {
   if (isAdminSession()) return;
   if (process.env.LENNART_NO_ELEVATE) return;
+  // Microsoft Store (MSIX) builds cannot relaunch themselves through UAC —
+  // the menus already mark admin commands, and Windows' own "Kør som
+  // administrator" on the Start menu entry works instead.
+  if (process.windowsStore) return;
   // Automated/debug runs (CDP) must never pop a UAC dialog
   if (process.argv.some((a) => String(a).includes('--remote-debugging-port'))) return;
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -364,6 +368,19 @@ function maybeOfferElevation() {
 ipcMain.handle('app:elevation', () => ({ admin: isAdminSession() }));
 ipcMain.handle('app:relaunchAdmin', () => {
   logDiag('[admin] relaunch requested by renderer');
+  if (process.windowsStore) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        buttons: ['OK'],
+        title: 'Lennart Terminal',
+        message: 'Start som administrator fra Start-menuen',
+        detail: 'Luk Lennart Terminal, højreklik på den i Start-menuen og vælg “Kør som administrator”.',
+        noLink: true,
+      }).catch(() => {});
+    }
+    return { started: false };
+  }
   return { started: relaunchElevated() };
 });
 
@@ -544,23 +561,21 @@ ipcMain.on('ai:chat', async (event, { id, messages, agentMode }) => {
   const convo = all.filter((m) => m.role !== 'system');
   const users = convo.filter((m) => m.role === 'user');
   const lastUser = users[users.length - 1];
-  const prevUser = users[users.length - 2];
 
   const ctrl = new AbortController();
   activeChats.set(id, ctrl);
   let userAborted = false;
 
-  // The embedded model always gets its focused prompt; other providers get
-  // the assistant prompt when "system prompt i chat" (agentMode) is on.
-  // Both only carry the knowledge cards that match the question.
-  const basePrompt = (isEmbeddedLocal || agentMode)
-    ? buildChatSystemPrompt({
-        embedded: isEmbeddedLocal,
-        question: lastUser ? lastUser.content : '',
-        previous: prevUser ? prevUser.content : '',
-      })
-    : '';
-  const system = [basePrompt, ...extraSystem].filter(Boolean).join('\n\n') || null;
+  // The embedded model always gets its focused prompt (+ one example turn);
+  // other providers get the assistant prompt when "system prompt i chat"
+  // (agentMode) is on. Both only carry the knowledge that matches.
+  let system = extraSystem.join('\n\n') || null;
+  let turns = convo;
+  if (isEmbeddedLocal || agentMode) {
+    const built = buildChatTurns({ embedded: isEmbeddedLocal, messages: convo, extraSystem });
+    system = built.system;
+    turns = built.messages;
+  }
 
   // Loop guard: stops a looping answer the moment it repeats itself
   const guard = createAnswerGuard({
@@ -572,7 +587,7 @@ ipcMain.on('ai:chat', async (event, { id, messages, agentMode }) => {
   let finishReason = '';
   let failure = null;
   try {
-    const res = await chat(cfg, convo, {
+    const res = await chat(cfg, turns, {
       system,
       signal: ctrl.signal,
       onToken: (token) => {

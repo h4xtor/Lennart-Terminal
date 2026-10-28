@@ -100,7 +100,7 @@ async function applyProviderSelection() {
       ? '<span class="ok">&#10004; Kører — offline PowerShell-assistent klar</span>'
       : (st.binary && st.model
         ? '<span class="ok">&#10004; Downloadet — startes automatisk</span>'
-        : '<span class="err">&#9888; Hentes ved førstehjælp (~1 GB, kræver internet én gang)</span>');
+        : '<span class="err">&#9888; Hentes første gang (~2,4 GB, kræver internet én gang)</span>');
   } else if (info.protocol === 'agy') {
     statusEl.innerHTML = '<span class="ok">&#10004; Lokal agent-motor — v&#230;lg den under Agent</span>';
   } else if (info.needsKey && !stored.apiKey) {

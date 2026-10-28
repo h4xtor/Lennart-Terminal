@@ -6,6 +6,7 @@ tools/
 
 # Build output
 dist/
+dist-store/
 out/
 
 # Portable user data (USB stick): settings, history, local AI assets

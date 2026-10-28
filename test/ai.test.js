@@ -9,7 +9,7 @@
 const http = require('http');
 const assert = require('assert');
 const {
-  chat, listModels, buildAgentSystemPrompt, buildPowerShellSystemPrompt, buildChatSystemPrompt, PROVIDERS,
+  chat, listModels, buildAgentSystemPrompt, buildPowerShellSystemPrompt, buildChatSystemPrompt, buildChatTurns, PROVIDERS,
 } = require('../src/main/ai');
 
 const PORT = 18114;
@@ -200,8 +200,41 @@ function testProviderCatalog() {
   console.log(`PASS provider catalog (${Object.keys(expected).length} new cloud providers + existing)`);
 }
 
+/**
+ * The built-in model gets ONE example exchange (from the matching card) in
+ * front of the first question — small models copy the shape of a real turn.
+ */
+function testExampleTurns() {
+  const { CARDS } = require('../src/main/knowledge');
+  for (const c of CARDS) {
+    assert.ok(c.example && c.example.q && c.example.a, `card ${c.id} has an example answer`);
+    assert.ok(!/^\s*\d+\.\s/m.test(c.example.a), `example ${c.id} has no numbered list`);
+    assert.ok(!/^#/m.test(c.example.a), `example ${c.id} has no headings`);
+    assert.ok(c.example.a.length < 1200, `example ${c.id} is short (${c.example.a.length})`);
+    if (c.id !== 'app') assert.ok(c.example.a.includes('```powershell'), `example ${c.id} shows a powershell block`);
+  }
+  const q = [{ role: 'user', content: 'Hvordan genstarter jeg print spooleren?' }];
+  const first = buildChatTurns({ embedded: true, messages: q });
+  assert.strictEqual(first.messages.length, 3, 'example user + assistant turn + the real question');
+  assert.strictEqual(first.messages[1].role, 'assistant');
+  assert.ok(/Restart-Service/.test(first.messages[1].content), 'the services example is chosen for a spooler question');
+  assert.strictEqual(first.messages[2].content, q[0].content, 'the real question comes last');
+
+  const later = buildChatTurns({ embedded: true, messages: [...q, { role: 'assistant', content: 'svar' }, { role: 'user', content: 'og lyden?' }] });
+  assert.strictEqual(later.messages.length, 3, 'no example once the conversation has real turns');
+
+  const cloud = buildChatTurns({ embedded: false, messages: q });
+  assert.strictEqual(cloud.messages.length, 1, 'big/cloud models get no example turn');
+  assert.ok(/dansk/.test(cloud.system), 'cloud prompt still Danish');
+
+  const help = buildChatTurns({ embedded: true, messages: q, extraSystem: ['HELP-KONTEKST'] });
+  assert.ok(help.system.endsWith('HELP-KONTEKST'), '/help context is merged into the one system prompt');
+  console.log(`PASS example turns (${CARDS.length} cards with model answers)`);
+}
+
 async function main() {
   testFocusedPrompts();
+  testExampleTurns();
   testProviderCatalog();
   await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
 
