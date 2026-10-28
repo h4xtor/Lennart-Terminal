@@ -46,27 +46,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run start-lennart-terminal.cmd like a user
-        shell: cmd
-        run: start-lennart-terminal.cmd
-
-      - name: Check that the EXE was downloaded and is running
+      # Start + checks in ONE step: the runner kills a step's child
+      # processes when that step ends.
+      - name: Double-click start-lennart-terminal.cmd and check the app
         shell: pwsh
         run: |
+          cmd /c start-lennart-terminal.cmd
+          if ($LASTEXITCODE -ne 0) { throw "launcher exited with $LASTEXITCODE" }
           $exe = Join-Path $PWD 'LennartTerminal-portable.exe'
           if (-not (Test-Path $exe)) { throw 'EXE was not downloaded' }
-          $mb = [math]::Round((Get-Item $exe).Length / 1MB, 1)
-          Write-Host "Downloaded: $mb MB"
-          $running = $false
-          for ($i = 0; $i -lt 40 -and -not $running; $i++) {
-            Start-Sleep -Seconds 3
-            $p = Get-Process | Where-Object { $_.Name -match 'Lennart' }
-            if ($p) { $running = $true; $p | Format-Table Name, Id -AutoSize | Out-String | Write-Host }
+          Write-Host ("Downloaded: {0} MB" -f [math]::Round((Get-Item $exe).Length / 1MB, 1))
+          $settings = Join-Path $PWD 'Data\settings.json'
+          $ok = $false
+          for ($i = 0; $i -lt 60 -and -not $ok; $i++) {
+            Start-Sleep -Seconds 2
+            $ok = (Test-Path $settings) -and (Get-Process | Where-Object { $_.Name -match 'Lennart' })
           }
-          if (-not $running) { throw 'Lennart Terminal did not start' }
-          # The app is portable: it creates its Data folder next to the EXE
-          for ($i = 0; $i -lt 20 -and -not (Test-Path (Join-Path $PWD 'Data\settings.json')); $i++) { Start-Sleep -Seconds 3 }
-          if (-not (Test-Path (Join-Path $PWD 'Data\settings.json'))) { throw 'Data\settings.json was not created' }
-          Write-Host 'Lennart Terminal started and created Data\settings.json'
+          Get-Process | Where-Object { $_.Name -match 'Lennart' } | Format-Table Name, Id -AutoSize | Out-String | Write-Host
+          $log = Join-Path $env:TEMP 'lennart-terminal-main.log'
+          if (Test-Path $log) { Write-Host '--- app log ---'; Get-Content $log -Tail 30 }
+          if (-not $ok) { throw 'Lennart Terminal did not start (no process or no Data\settings.json)' }
+          Write-Host 'OK: Lennart Terminal is running and created Data\settings.json next to the EXE'
           Get-Process | Where-Object { $_.Name -match 'Lennart' } | Stop-Process -Force
-
