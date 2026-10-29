@@ -52,7 +52,11 @@ function buildRemoteArgv(host, method, command, opts) {
   if (o.keyPath) args.push('-i', o.keyPath);
   args.push(
     o.username ? `${o.username}@${host}` : host,
-    'powershell.exe', '-NoLogo', '-NoProfile', '-EncodedCommand', b64Utf16(command),
+    'powershell.exe', '-NoLogo', '-NoProfile',
+    // Without this, PowerShell serialises errors as CLIXML ("#< CLIXML …
+    // _x001B_[31;1m…") because SSH gives it redirected stderr.
+    '-OutputFormat', 'Text',
+    '-EncodedCommand', b64Utf16(command),
   );
   return ['ssh.exe', args];
 }

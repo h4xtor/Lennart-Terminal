@@ -17,6 +17,7 @@ async function testSshArgv() {
   assert.ok(!args.includes('Get-Date'), 'command is not passed raw to the remote shell');
   const encIdx = args.indexOf('-EncodedCommand');
   assert.ok(encIdx > 0, 'uses -EncodedCommand');
+  assert.strictEqual(args[args.indexOf('-OutputFormat') + 1], 'Text', 'prevents CLIXML error output');
   assert.strictEqual(Buffer.from(args[encIdx + 1], 'base64').toString('utf16le'), 'Get-Date');
   assert.ok(!args.some((a) => typeof a === 'string' && /password/i.test(a)), 'no password flags in ssh argv');
   console.log('PASS ssh argv (encoded command)');

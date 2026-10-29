@@ -67,7 +67,7 @@ Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service ssh
 
 4. Click the host in the sidebar → a remote tab opens. Type commands in the bottom prompt box — they execute **on that PC**, stream output live, and land in the permanent history marked **Netværk**.
 
-Commands are sent as a base64 `-EncodedCommand`, so `$variables` and `|` reach PowerShell intact instead of being expanded by the remote shell. SSH only: a Linux/macOS target works too — install PowerShell 7 (`pwsh`) and make `powershell.exe` resolve to it (`sudo ln -s "$(command -v pwsh)" /usr/local/bin/powershell.exe`). WinRM is Windows-only.
+Commands are sent as a base64 `-EncodedCommand` with `-OutputFormat Text`, so `$variables` and `|` reach PowerShell intact instead of being expanded by the remote shell, and errors stay readable instead of arriving as `#< CLIXML` XML. SSH only: a Linux/macOS target works too — install PowerShell 7 (`pwsh`) and make `powershell.exe` resolve to it (`sudo ln -s "$(command -v pwsh)" /usr/local/bin/powershell.exe`). WinRM is Windows-only.
 
 **Linux Mint 22.x / Ubuntu 24.04:** use the Ubuntu 24.04 Microsoft feed explicitly — Mint reports `VERSION_ID=22.3`, so the usual `$VERSION_ID` snippet would request a non-existent `ubuntu/22.3` repo:
 
