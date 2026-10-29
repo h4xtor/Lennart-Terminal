@@ -114,6 +114,73 @@ async function startStubAi() {
   return { server, port };
 }
 
+/**
+ * Minimal GitHub Releases stub. It lets the smoke test exercise the real
+ * updater IPC and dialog without touching github.com or downloading a
+ * 70 MB EXE. The asset URL points at this local server.
+ */
+async function startStubUpdate() {
+  const port = await freePort();
+  const server = http.createServer((req, res) => {
+    const url = String(req.url || '/');
+    const base = `http://127.0.0.1:${port}`;
+    const json = (value) => {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.end(JSON.stringify(value));
+    };
+    if (url.startsWith('/repos/h4xtor/Lennart-Terminal/releases')) {
+      json([{
+        tag_name: 'v9.9.9',
+        name: 'Lennart Terminal v9.9.9',
+        published_at: '2026-10-29T10:00:00Z',
+        body: 'Smoke release',
+        draft: false,
+        prerelease: false,
+        html_url: 'https://github.com/h4xtor/Lennart-Terminal/releases/tag/v9.9.9',
+        assets: [
+          {
+            name: 'LennartTerminal-9.9.9-portable.exe',
+            size: 4096,
+            browser_download_url: `${base}/download/LennartTerminal-9.9.9-portable.exe`,
+          },
+          {
+            name: 'SHA256SUMS.txt',
+            size: 100,
+            browser_download_url: `${base}/SHA256SUMS.txt`,
+          },
+        ],
+      }]);
+      return;
+    }
+    if (url.startsWith('/repos/h4xtor/Lennart-Terminal/tags')) {
+      json([{ name: 'v0.1.0' }, { name: 'v9.9.9' }]);
+      return;
+    }
+    if (url.startsWith('/repos/h4xtor/Lennart-Terminal/compare/')) {
+      json({
+        commits: [
+          { commit: { message: 'Tilføj glowing version' } },
+          { commit: { message: 'Ret knapper' } },
+        ],
+      });
+      return;
+    }
+    if (url.startsWith('/SHA256SUMS.txt')) {
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.end(`${'a'.repeat(64)}  LennartTerminal-9.9.9-portable.exe\n`);
+      return;
+    }
+    res.statusCode = 404;
+    res.end('{}');
+  });
+
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', resolve);
+  });
+  return { server, port };
+}
+
 /** A throw-away data dir + APPDATA, so the real user profile is untouched. */
 function createProfile() {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'lennart-smoke-'));
@@ -173,7 +240,7 @@ function electronExe() {
   return fs.existsSync(fallback) ? fallback : '';
 }
 
-function launchApp(profile, port) {
+function launchApp(profile, port, updatePort) {
   const exe = electronExe();
   if (!exe) throw new Error('Electron blev ikke fundet — kør "npm ci" først.');
 
@@ -193,6 +260,7 @@ function launchApp(profile, port) {
       TMP: profile.temp,
       LENNART_NO_ELEVATE: '1',
       ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
+      ...(updatePort ? { LENNART_UPDATE_API: `http://127.0.0.1:${updatePort}` } : {}),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: false,
@@ -392,12 +460,13 @@ async function main() {
   console.log(`Node ${process.version}`);
 
   const stub = await startStubAi();
+  const updateStub = await startStubUpdate();
   const profile = createProfile();
   writeSettings(profile.data, stub.port);
   console.log(`Midlertidig testprofil: ${profile.base}`);
 
   const cdpPort = await freePort();
-  const app = launchApp(profile, cdpPort);
+  const app = launchApp(profile, cdpPort, updateStub.port);
   let cdp = null;
   let ok = false;
 
@@ -453,6 +522,22 @@ async function main() {
       typeAgent: ((document.querySelector('#history-type option[value="agent"]') || {}).textContent || '').trim(),
       typeAi: ((document.querySelector('#history-type option[value="ai"]') || {}).textContent || '').trim(),
       version: ((document.getElementById('version-tag') || {}).textContent || '').trim(),
+      chrome: (() => {
+        const hist = document.getElementById('btn-history').getBoundingClientRect();
+        const set = document.getElementById('btn-settings').getBoundingClientRect();
+        const min = document.getElementById('btn-minimize').getBoundingClientRect();
+        const tag = document.getElementById('version-tag');
+        const cs = tag ? getComputedStyle(tag) : {};
+        return {
+          historyW: Math.round(hist.width), historyH: Math.round(hist.height),
+          settingsW: Math.round(set.width), settingsH: Math.round(set.height),
+          minimizeW: Math.round(min.width), minimizeH: Math.round(min.height),
+          versionTag: tag ? tag.tagName : '',
+          versionColor: cs.color || '',
+          versionShadow: cs.textShadow || '',
+          versionCursor: cs.cursor || ''
+        };
+      })(),
       xtermHelpers: (() => { const h = document.querySelector('.xterm-helpers');
         return h ? getComputedStyle(h).position : ''; })(),
       cmdClipped: (() => { const b = document.querySelector('.shell-btn[data-shell="cmd"]');
@@ -480,6 +565,18 @@ async function main() {
       `historikkens typer er Lokalt / Netværk / Agent / AI (${ui.typeAi})`,
     );
     assert(ui.version === 'v0.2.0', `versionsmærket er korrekt (${ui.version})`);
+    assert(
+      ui.chrome.historyW >= 38 && ui.chrome.historyH >= 30 &&
+      ui.chrome.settingsW >= 38 && ui.chrome.settingsH >= 30 &&
+      ui.chrome.minimizeW >= 40 && ui.chrome.minimizeH >= 30,
+      `topknapperne er større (${ui.chrome.historyW}×${ui.chrome.historyH}, ${ui.chrome.minimizeW}×${ui.chrome.minimizeH})`,
+    );
+    assert(ui.chrome.versionTag === 'BUTTON' && ui.chrome.versionCursor === 'pointer',
+      `versionsmærket er klikbart (${ui.chrome.versionTag}/${ui.chrome.versionCursor})`);
+    assert(ui.chrome.versionColor === 'rgb(255, 215, 106)',
+      `versionsmærket er guld (${ui.chrome.versionColor})`);
+    assert(ui.chrome.versionShadow !== 'none',
+      'versionsmærket har en synlig glød');
     assert(
       ui.xtermHelpers === 'absolute',
       `xterm.css er indlæst (helpers position: ${ui.xtermHelpers || 'mangler'})`,
@@ -684,7 +781,67 @@ async function main() {
     );
     pass('Rød vært kan slås fra igen');
 
-    // ---- 8. no renderer errors ----
+    // An AI command sent to a remote tab must not be rejected merely because
+    // remote tabs do not have a local PTY session id.
+    const aiRemote = await cdp.evaluate(`(async () => {
+      const original = activeTab;
+      let received = '';
+      activeTab = () => ({ remote: true, dead: false, runCommand: async (cmd) => { received = cmd; } });
+      try { await runAiCommand('Get-Process'); return received; }
+      finally { activeTab = original; }
+    })()`, true);
+    assert(aiRemote === 'Get-Process', 'AI-kommando kan sendes til en fjernfane');
+
+    // ---- 8. update dialog (real IPC against the local GitHub stub) ----
+    await cdp.evaluate("document.getElementById('version-tag').click(); true");
+    await waitForExpr(
+      cdp,
+      "!document.getElementById('update-overlay').classList.contains('hidden')",
+      5000,
+      'opdateringsvinduet',
+    );
+    await waitForExpr(
+      cdp,
+      "document.getElementById('update-version').textContent === 'v9.9.9'",
+      15000,
+      'ny version i opdateringsvinduet',
+    );
+    const updateUi = JSON.parse(await cdp.evaluate(`JSON.stringify({
+      title: ((document.getElementById('update-title') || {}).textContent || '').trim(),
+      status: ((document.getElementById('update-status') || {}).textContent || '').trim(),
+      installText: ((document.getElementById('btn-update-install') || {}).textContent || '').trim(),
+      installVisible: !!document.getElementById('btn-update-install') &&
+        !document.getElementById('btn-update-install').classList.contains('hidden'),
+      changes: [...document.querySelectorAll('#update-changes li')].map((li) => li.textContent)
+    })`));
+    assert(updateUi.title === 'Opdatering', `opdateringsvinduet hedder "Opdatering" (${updateUi.title})`);
+    assert(updateUi.installVisible && updateUi.installText.includes('Download og installer'),
+      `opdateringsvinduet tilbyder download (${updateUi.installText})`);
+    assert(updateUi.status.includes('v9.9.9'), `opdateringsstatus nævner versionen (${updateUi.status})`);
+    assert(updateUi.changes.some((c) => c.includes('Tilføj glowing version')),
+      'opdateringsvinduet viser hvad der er nyt');
+    pass('Opdateringsvinduet viser ny version, ændringer og installer-knap');
+    await cdp.evaluate('closeUpdateDialog(); true');
+
+    // The same dialog must be reachable from Settings → Om.
+    await cdp.evaluate('openSettings(); true');
+    await waitForExpr(
+      cdp,
+      "!!document.getElementById('btn-check-updates') && document.getElementById('btn-check-updates').textContent.includes('Søg efter opdatering')",
+      5000,
+      'opdateringsknap i Indstillinger',
+    );
+    await cdp.evaluate("document.getElementById('btn-check-updates').click(); true");
+    await waitForExpr(
+      cdp,
+      "!document.getElementById('update-overlay').classList.contains('hidden')",
+      5000,
+      'opdateringsvindue fra Indstillinger',
+    );
+    pass('Opdatering kan også startes fra Indstillinger → Om');
+    await cdp.evaluate('closeUpdateDialog(); closeSettings(); true');
+
+    // ---- 9. no renderer errors ----
     await sleep(800);
     assert(
       cdp.problems.length === 0,
@@ -714,6 +871,10 @@ async function main() {
     try {
       if (stub.server.closeAllConnections) stub.server.closeAllConnections();
       stub.server.close();
+    } catch { /* already closed */ }
+    try {
+      if (updateStub.server.closeAllConnections) updateStub.server.closeAllConnections();
+      updateStub.server.close();
     } catch { /* already closed */ }
     if (ok && !KEEP && profile) {
       try { fs.rmSync(profile.base, { recursive: true, force: true }); } catch { /* best effort */ }

@@ -59,6 +59,7 @@ const COMMAND_MENUS = [
       { label: 'Tilføj vært…', action: 'add-host' },
       { label: 'Test alle værter', action: 'test-hosts' },
       { label: 'Genstart som administrator', action: 'run-as-admin' },
+      { label: 'Søg efter opdatering…', action: 'check-updates' },
       { label: 'Se GitHub Actions (CI)', action: 'github-actions' },
       { label: 'Om Lennart Terminal', action: 'about' },
       { label: 'Slå SSH til (OpenSSH Server)', cmd: 'Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0' },

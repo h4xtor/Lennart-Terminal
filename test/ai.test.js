@@ -167,6 +167,12 @@ async function main() {
   const antModels = await listModels({ provider: 'anthropic', baseUrl: `http://127.0.0.1:${PORT}/anthropic/v1`, apiKey: 'sk-ant-test' });
   assert.ok(antModels.some((m) => m.id === 'claude-sonnet-4-6'), 'anthropic /models listing works');
   console.log('PASS anthropic model listing');
+  await assert.rejects(
+    () => listModels({ provider: 'anthropic', baseUrl: `http://127.0.0.1:${PORT}/anthropic/v1`, apiKey: 'wrong' }),
+    /401/,
+    'a rejected key must not be reported as a healthy connection',
+  );
+  console.log('PASS anthropic authentication failure');
 
   // --- OpenRouter (OpenAI protocol over cloud URL) ---
   const orCfg = { provider: 'openrouter', model: 'anthropic/claude-sonnet-4.6', baseUrl: `http://127.0.0.1:${PORT}/or/api/v1`, apiKey: 'sk-or-test' };

@@ -1,0 +1,3919 @@
+From 903bcf5f2e5fbb98bb9e7fb8ba764612aa76e2d5 Mon Sep 17 00:00:00 2001
+From: Codebuff <noreply@codebuff.com>
+Date: Wed, 28 Oct 2026 14:11:47 +0000
+Subject: [PATCH 01/12] =?UTF-8?q?Ret=20gennemg=C3=A5ede=20fejl,=20overs?=
+ =?UTF-8?q?=C3=A6t=20UI'en=20og=20optimer=20driften?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Retter bl.a. manglende historik for tastede kommandoer, at agentens motor-
+og auto-godkendelsesvalg blev ignoreret, hængende lokal-AI-start, afkortet
+SSH-output, IPC-lytterlæk pr. fane og en platformsfølsom test. Hele den
+synlige UI er nu på dansk, og der er tilføjet regressionstests for SSE-haler
+og agentens godkendelseslogik.
+
+🤖 Generated with Codebuff
+Co-Authored-By: Codebuff <noreply@codebuff.com>
+---
+ README.md                   |  18 +++---
+ scripts/verify-ui.js        |  12 ++--
+ src/main/agent.js           |   8 ++-
+ src/main/ai.js              |  52 +++++++++-------
+ src/main/localai.js         |  34 ++++++++---
+ src/main/main.js            | 115 +++++++++++++++++++++++++++++-------
+ src/main/pty.js             |  56 +++++++++++++-----
+ src/main/remote.js          |  18 ++++--
+ src/main/store.js           |  25 +++++++-
+ src/preload/preload.js      |  29 ++++++---
+ src/renderer/css/warp.css   |   8 +++
+ src/renderer/index.html     |  84 +++++++++++++-------------
+ src/renderer/js/ai.js       |  48 ++++++++-------
+ src/renderer/js/app.js      |  23 +++++---
+ src/renderer/js/commands.js |   8 +--
+ src/renderer/js/history.js  |  13 +++-
+ src/renderer/js/settings.js |  37 +++++++-----
+ src/renderer/js/terminal.js |  31 ++++++----
+ test/agent.test.js          |  64 ++++++++++++++++++++
+ test/ai.test.js             |  23 ++++++++
+ test/localai.test.js        |   2 +-
+ 21 files changed, 506 insertions(+), 202 deletions(-)
+ create mode 100644 test/agent.test.js
+
+diff --git a/README.md b/README.md
+index 9ba2dd8..1cc3721 100644
+--- a/README.md
++++ b/README.md
+@@ -1,6 +1,6 @@
+ # Lennart Terminal
+ 
+-A AI-inspired terminal for Windows with an integrated **AI agent** — chat with your terminal, or let the AI take over and run a whole job for you.
++An AI-inspired terminal for Windows with an integrated **AI agent** — chat with your terminal, or let the AI take over and run a whole job for you.
+ 
+ [![CI](https://github.com/h4xtor/Lennarts-Terminal/actions/workflows/ci.yml/badge.svg)](https://github.com/h4xtor/Lennarts-Terminal/actions/workflows/ci.yml) ![platform](https://img.shields.io/badge/platform-Windows-blue) ![license](https://img.shields.io/badge/license-MIT-green)
+ 
+@@ -57,9 +57,9 @@ Unplug, walk to the next PC, plug in, run — your AI, your hosts, your history,
+ 
+ ## Run commands on network PCs
+ 
+-1. Click **+ Tilføj vært…** in the sidebar (or add hosts under Settings → Netværk)
++1. Click **+ Tilføj vært…** in the sidebar (or add hosts under Indstillinger → Netværk)
+ 2. Choose **SSH** (recommended) or **WinRM**
+-3. On each target PC, run the one-time SSH setup command (button in Settings → Netværk, run as admin):
++3. On each target PC, run the one-time SSH setup command (button in Indstillinger → Netværk, run as admin):
+ 
+ ```powershell
+ Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service sshd; Set-Service sshd -StartupType Automatic; New-NetFirewallRule -Name sshd -DisplayName "OpenSSH Server" -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
+@@ -69,7 +69,7 @@ Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service ssh
+ 
+ ## Connect an AI
+ 
+-Open **Settings (Ctrl+,)** → *AI Provider* → press **↻** to load models → pick one → **Save**. The sidebar LED turns green when the endpoint answers.
++Open **Indstillinger (Ctrl+,)** → *AI & modeller* → press **↻** to load models → pick one → **Save**. The sidebar LED turns green when the endpoint answers.
+ 
+ ### Local / private (no key needed)
+ 
+@@ -105,11 +105,11 @@ npm install -g omniroute
+ omniroute
+ ```
+ 
+-Then in Lennart Terminal: Settings → *OmniRoute (gateway)* → ↻ → pick `auto` (or any specific model) → Save. Done — no API keys required for the free tiers.
++Then in Lennart Terminal: Indstillinger → *OmniRoute (gateway)* → ↻ → pick `auto` (or any specific model) → Save. Done — no API keys required for the free tiers.
+ 
+ ### Agent brain
+ 
+-Settings → *Agent* lets you choose who drives Agent mode:
++Indstillinger → *Agent* lets you choose who drives Agent mode:
+ 
+ - **Built-in autopilot** — uses your selected AI provider, runs the plan/run/observe loop in your active terminal tab
+ - **Antigravity CLI** — if [`agy`](https://antdna.dev) is installed, its models appear here and the CLI becomes the agent engine (and chat backend)
+@@ -121,7 +121,7 @@ Settings → *Agent* lets you choose who drives Agent mode:
+ | `Ctrl+T` | New tab |
+ | `Ctrl+W` | Close tab |
+ | `Ctrl+J` | Toggle AI panel |
+-| `Ctrl+,` | Settings |
++| `Ctrl+,` | Indstillinger |
+ | `Ctrl+0` / `Ctrl+=` / `Ctrl+-` | Reset / zoom in / zoom out |
+ | `Enter` (prompt box) | Run command in active tab |
+ | `Ctrl+Enter` (prompt box) | Send prompt text to the AI |
+@@ -156,12 +156,12 @@ Runs the AI layer against mock local servers (no Ollama required) and verifies m
+ ## Security notes
+ 
+ - API keys live in `%APPDATA%\Lennart Terminal\settings.json` — never commit this file, never paste keys into issues
+-- The agent's destructive-command confirmation can be relaxed in Settings, but the hard deny-list (`format`, `diskpart`, `bcdedit`, …) cannot
++- The agent's destructive-command confirmation can be relaxed in Indstillinger, but the hard deny-list (`format`, `diskpart`, `bcdedit`, …) cannot
+ - Terminal output is only sent to your configured AI provider when you attach it
+ 
+ ## Contributing
+ 
+-PRs are welcome! Keep it dependency-light, match the existing code style, and run `npm test` before submitting. Good first issues: shell profiles for macOS/Linux, i18n of the UI strings, more agent safety heuristics.
++PRs are welcome! Keep it dependency-light, match the existing code style, and run `npm test` before submitting. Good first issues: shell profiles for macOS/Linux, more agent safety heuristics.
+ 
+ ## License
+ 
+diff --git a/scripts/verify-ui.js b/scripts/verify-ui.js
+index ca98e75..6cd1312 100644
+--- a/scripts/verify-ui.js
++++ b/scripts/verify-ui.js
+@@ -95,7 +95,7 @@ async function main() {
+   assert(menuHasCmd >= 40, `menu items show their command as tooltip (${menuHasCmd})`);
+ 
+   const firstMenu = await evaluate(`(document.querySelector('#menubar .menu .menu-btn') || {}).textContent || ''`);
+-  assert(firstMenu.trim() === 'Setup', `Setup is the first menubar menu ("${firstMenu.trim()}")`);
++  assert(firstMenu.trim() === 'Opsætning', `Opsætning is the first menubar menu ("${firstMenu.trim()}")`);
+   const sortedMenus = await evaluate(`
+     [...document.querySelectorAll('#menubar .menu')].every((m) => {
+       const strip = (t) => t.replace(/\s*· kræver administrator\s*/g, '').trim();
+@@ -145,7 +145,7 @@ async function main() {
+   const remoteItems = remoteMenu ? JSON.parse(remoteMenu) : [];
+   assert(remoteItems.length >= 16, `Fjernsupport top menu exists (${remoteItems.length} items)`);
+   assert(remoteItems.some((t) => t.includes('Forbind til IP')) &&
+-         remoteItems.some((t) => t.includes('SSH setup')) &&
++         remoteItems.some((t) => t.includes('SSH-opsætning')) &&
+          remoteItems.some((t) => t.includes('Tilføj vært')),
+     'Fjernsupport menu contains the remote functions (quick-connect, SSH setup, add host)');
+ 
+@@ -203,10 +203,10 @@ async function main() {
+     })())`));
+   const reddish = (c) => { const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(c); return !!(m && Number(m[1]) > 200 && Number(m[2]) < 170 && Number(m[3]) < 170); };
+   assert(!reddish(ph.color), `prompt placeholder is NOT red — back to the original colour (${ph.color})`);
+-  assert(ph.hint.includes('Ask AI (Ctrl+Enter)') && ph.hint.includes('or type a command'),
++  assert(ph.hint.includes('Spørg AI (Ctrl+Enter)') && ph.hint.includes('eller skriv en kommando'),
+     `bottom hint names the AI shortcut + command hint ("${ph.hint}")`);
+   assert(ph.hintVisible === true, 'bottom hint is visible while the prompt box is empty');
+-  assert(ph.hintColor === 'rgb(124, 108, 255)', `“Ask AI (Ctrl+Enter)” is lit in the accent colour (${ph.hintColor})`);
++  assert(ph.hintColor === 'rgb(124, 108, 255)', `“Spørg AI (Ctrl+Enter)” is lit in the accent colour (${ph.hintColor})`);
+ 
+   // ---- 1d. "Hent modeller" for local models ----
+   const fetchBtn = await evaluate(`(document.getElementById('btn-refresh-models') || {}).textContent || ''`);
+@@ -262,8 +262,8 @@ async function main() {
+   assert(label.includes('Indbygget'), `AI header shows embedded model ("${label}")`);
+   const selectedModel = await evaluate(`(window.__lennartSettings && window.__lennartSettings.ai && window.__lennartSettings.ai.model) || ''`);
+   assert(
+-    selectedModel ? label.includes(selectedModel) : label.includes('hardcoded model'),
+-    `AI header shows the selected model ("${label}" vs "${selectedModel || 'hardcoded model'}")`,
++    selectedModel ? label.includes(selectedModel) : label.includes('indbygget model'),
++    `AI header shows the selected model ("${label}" vs "${selectedModel || 'indbygget model'}")`,
+   );
+ 
+   // The suggestion chips in the AI pane must be Danish
+diff --git a/src/main/agent.js b/src/main/agent.js
+index 4b12ff7..46f3182 100644
+--- a/src/main/agent.js
++++ b/src/main/agent.js
+@@ -122,7 +122,11 @@ class AgentSession {
+         return { ok: false, error: 'hard-denied command' };
+       }
+ 
+-      if (this.settings.confirmDestructive !== false && isDestructive(cmd)) {
++      // Settings → Agent: "Auto-godkend agent-kommandoer" skips the
++      // destructive-command dialog (the hard deny-list still applies).
++      const needsApproval = this.settings.confirmDestructive !== false &&
++        this.settings.agentAutoApprove !== true;
++      if (needsApproval && isDestructive(cmd)) {
+         emit({ type: 'status', text: `Venter på godkendelse: ${cmd}` });
+         const ok = await this.deps.confirm(cmd);
+         if (!ok) {
+@@ -179,7 +183,7 @@ class AgentSession {
+       '',
+       'Reply with ONLY the JSON object for the next step.',
+     ].join('\n');
+-    const res = await runAgyAgent({ prompt, onEvent: null });
++    const res = await runAgyAgent({ prompt, onEvent: null, model: this.aiConfig.model || undefined });
+     return parseDecision(res.text || '');
+   }
+ }
+diff --git a/src/main/ai.js b/src/main/ai.js
+index f002740..3c092bc 100644
+--- a/src/main/ai.js
++++ b/src/main/ai.js
+@@ -50,7 +50,7 @@ const PROVIDERS = {
+     needsKey: false,
+   },
+   'openai-compatible': {
+-    label: 'Custom OpenAI-kompatibel…',
++    label: 'Tilpasset OpenAI-kompatibel…',
+     group: 'Lokale / private',
+     protocol: 'openai',
+     baseUrl: '',
+@@ -154,15 +154,17 @@ function providerInfo(id) {
+ }
+ 
+ function resolveConfig(cfg) {
+-  const info = providerInfo(cfg.provider) || {};
+-  const baseUrl = (cfg.baseUrl || '').trim() || info.baseUrl || '';
+-  const apiKey = (cfg.apiKey || '').trim();
++  const info = providerInfo(cfg.provider);
+   // Stale/unknown provider id (settings saved by an older build): the offline
+   // embedded assistant is the safe default — it needs no key, URL or model.
++  // Never carry a stale custom URL/key over to the fallback provider.
+   const provider = info ? cfg.provider : DEFAULT_PROVIDER;
++  const resolved = info || providerInfo(DEFAULT_PROVIDER);
++  const baseUrl = info ? ((cfg.baseUrl || '').trim() || info.baseUrl || '') : '';
++  const apiKey = info ? (cfg.apiKey || '').trim() : '';
+   return {
+     provider,
+-    protocol: (info || providerInfo(DEFAULT_PROVIDER)).protocol || 'openai',
++    protocol: resolved.protocol || 'openai',
+     baseUrl,
+     apiKey,
+   };
+@@ -195,7 +197,7 @@ async function listModels(cfg, { timeout = 6000 } = {}) {
+   const { provider, protocol, baseUrl, apiKey } = resolveConfig(cfg);
+ 
+   if (!baseUrl && provider !== 'antigravity-cli') {
+-    throw new Error('Ingen base URL konfigureret — åbn Settings og vælg en udbyder (eller tilføj en base URL)');
++    throw new Error('Ingen base URL konfigureret — åbn Indstillinger og vælg en udbyder (eller tilføj en base URL)');
+   }
+ 
+   if (protocol === 'ollama') {
+@@ -211,7 +213,7 @@ async function listModels(cfg, { timeout = 6000 } = {}) {
+   }
+ 
+   if (protocol === 'anthropic') {
+-    if (!apiKey) throw new Error('Anthropic kræver en API-nøgle (Settings → API-nøgle)');
++    if (!apiKey) throw new Error('Anthropic kræver en API-nøgle (Indstillinger → API-nøgle)');
+     const headers = {
+       'x-api-key': apiKey,
+       'anthropic-version': '2023-06-01',
+@@ -285,12 +287,12 @@ async function chat(cfg, messages, { system, onToken, signal } = {}) {
+   const model = cfg.model || '';
+ 
+   if (!model && provider !== 'antigravity-cli') {
+-    throw new Error('Ingen model valgt — åbn Settings og vælg en');
++    throw new Error('Ingen model valgt — åbn Indstillinger og vælg en');
+   }
+   // Never let a half-configured provider reach fetch with an empty URL
+   // (that surfaced as "Failed to parse URL from /chat/completions").
+   if (protocol === 'openai' && !baseUrl) {
+-    throw new Error('AI-udbyder er ikke konfigureret — åbn Settings og vælg "Indbygget (offline)" eller udfyld en base URL');
++    throw new Error('AI-udbyder er ikke konfigureret — åbn Indstillinger og vælg "Indbygget (offline)" eller udfyld en base URL');
+   }
+ 
+   const temperature = Number.isFinite(cfg.temperature) ? cfg.temperature : 0.4;
+@@ -399,7 +401,7 @@ async function chatAgy({ messages, system, onToken, signal, model, allowTools })
+ }
+ 
+ async function chatAnthropic({ baseUrl, model, messages, system, temperature, maxTokens, topP, apiKey, onToken, signal }) {
+-  if (!apiKey) throw new Error('Anthropic kræver en API-nøgle (Settings → API Keys)');
++  if (!apiKey) throw new Error('Anthropic kræver en API-nøgle (Indstillinger → API-nøgle)');
+ 
+   // Anthropic has no system-role messages — merge them into the system prompt
+   const systemText = [system, ...messages.filter((m) => m.role === 'system').map((m) => m.content)]
+@@ -448,7 +450,7 @@ const { spawn } = require('child_process');
+ 
+ function agyAvailable() {
+   return new Promise((resolve) => {
+-    const p = spawn('agy', ['--version'], { shell: true });
++    const p = spawn('agy', ['--version'], { shell: true, windowsHide: true });
+     p.on('error', () => resolve(false));
+     p.on('close', (code) => resolve(code === 0));
+   });
+@@ -456,7 +458,7 @@ function agyAvailable() {
+ 
+ function listAgyModels() {
+   return new Promise((resolve, reject) => {
+-    const p = spawn('agy', ['models'], { shell: true });
++    const p = spawn('agy', ['models'], { shell: true, windowsHide: true });
+     let out = '';
+     p.stdout.on('data', (d) => { out += d; });
+     p.on('error', (err) => reject(new Error(`agy CLI ikke fundet: ${err.message}`)));
+@@ -566,6 +568,7 @@ async function consumeNdjson(res, onObject) {
+       try { onObject(JSON.parse(t)); } catch { /* partial */ }
+     }
+   }
++  buf += decoder.decode();
+   if (buf.trim()) {
+     try { onObject(JSON.parse(buf.trim())); } catch { /* ignore */ }
+   }
+@@ -575,18 +578,25 @@ async function consumeSse(res, onPayload) {
+   const reader = res.body.getReader();
+   const decoder = new TextDecoder();
+   let buf = '';
++  const consume = (chunk) => {
++    for (const ev of chunk.split('\n\n')) {
++      for (const line of ev.split('\n')) {
++        if (line.startsWith('data:')) onPayload(line.slice(5).trim());
++      }
++    }
++  };
+   while (true) {
+     const { done, value } = await reader.read();
+     if (done) break;
+     buf += decoder.decode(value, { stream: true });
+     const events = buf.split('\n\n');
+     buf = events.pop() || '';
+-    for (const ev of events) {
+-      for (const line of ev.split('\n')) {
+-        if (line.startsWith('data:')) onPayload(line.slice(5).trim());
+-      }
+-    }
++    consume(events.join('\n\n'));
+   }
++  // Some providers close the stream without the final blank line; flush the
++  // decoder + remainder so the last (possibly multi-byte) token is not lost.
++  buf += decoder.decode();
++  if (buf.trim()) consume(buf);
+ }
+ 
+ // ---------------------------------------------------------------------------
+@@ -620,10 +630,10 @@ function buildPowerShellSystemPrompt() {
+     'Du er god til PowerShell og hjælper med fejlfinding på PC\'er.',
+     '',
+     'Du kender også selve appen “Lennart Terminal” og kan forklare den:',
+-    '- Warp-agtig Windows-terminal: 20 netværksknapper i sidebar, dropdown-menuer øverst (Setup, Netværk, System, Processer, Disk, Sikkerhed, GPU & spil, Fejlfinding, Fjernstyring, AI), AI-chat til højre.',
+-    '- Fjernstyring: quick-connect til en LAN-IP (SSH eller WinRM) åbner en fjern-fane hvor kommandoer køres på den anden PC. Kræver SSH slået til (Setup → “Slå SSH til”, admin) eller Enable-PSRemoting.',
+-    '- Modeller: “Hent modeller” i Setup henter flere lokale GGUF-modeller; Ollama og API-udbydere kan vælges i samme dialog. /help i chatten giver kontekstbaseret fejlsøgning.',
+-    '- Genveje: Ctrl+T ny fane · Ctrl+J AI-panel · Ctrl+H historik · Ctrl+, setup · Ctrl+Shift+C kopiér markering.',
++    '- Warp-agtig Windows-terminal: 20 netværksknapper i sidebar, dropdown-menuer øverst (Opsætning, Netværk, System, Processer, Disk, Sikkerhed, GPU & spil, Fejlfinding, Fjernstyring, AI), AI-chat til højre.',
++    '- Fjernstyring: quick-connect til en LAN-IP (SSH eller WinRM) åbner en fjern-fane hvor kommandoer køres på den anden PC. Kræver SSH slået til (Opsætning → “Slå SSH til”, admin) eller Enable-PSRemoting.',
++    '- Modeller: “Hent modeller” i Opsætning henter flere lokale GGUF-modeller; Ollama og API-udbydere kan vælges i samme dialog. /help i chatten giver kontekstbaseret fejlsøgning.',
++    '- Genveje: Ctrl+T ny fane · Ctrl+J AI-panel · Ctrl+H historik · Ctrl+, opsætning · Ctrl+Shift+C kopiér markering.',
+     '',
+     'Følg altid dette svarformat:',
+     'Bruger: Hvad er kommanden til at vise IP-adressen — og vil du udføre den for mig?',
+diff --git a/src/main/localai.js b/src/main/localai.js
+index 48cc699..85fe0a1 100644
+--- a/src/main/localai.js
++++ b/src/main/localai.js
+@@ -329,16 +329,35 @@ class LocalAI {
+       let settled = false;
+       const deadline = Date.now() + 180000; // first load can be slow from USB HDD
+ 
+-      this.child.once('exit', (code) => {
++      let pollTimer = null;
++      const fail = (message) => {
+         if (settled) return;
+         settled = true;
+         clearInterval(pollTimer);
+         this.state = 'error';
+-        this.lastError = `llama-server afsluttede med kode ${code}`;
+-        reject(new Error(this.lastError));
++        this.lastError = message;
++        reject(new Error(message));
++      };
++
++      this.child.once('exit', (code) => {
++        // A crash AFTER startup must not leave status() claiming "running".
++        if (settled) {
++          this.child = null;
++          if (this.state === 'running') {
++            this.state = 'error';
++            this.lastError = `llama-server stoppede uventet (kode ${code})`;
++          }
++          return;
++        }
++        fail(`llama-server afsluttede med kode ${code}`);
++      });
++      // Without this listener a spawn failure (missing binary, permissions)
++      // was an uncaught EventEmitter error and ensure() never settled.
++      this.child.once('error', (err) => {
++        fail(`Kunne ikke starte llama-server: ${err.message || err}`);
+       });
+ 
+-      const pollTimer = setInterval(() => {
++      pollTimer = setInterval(() => {
+         if (settled) return;
+         httpGetJson(healthUrl(this.port), 1200)
+           .then((h) => {
+@@ -351,11 +370,8 @@ class LocalAI {
+           })
+           .catch(() => { /* not ready yet */ });
+         if (Date.now() > deadline && !settled) {
+-          settled = true;
+-          clearInterval(pollTimer);
+-          this.state = 'error';
+-          this.lastError = 'lokal AI-server svarer ikke (timeout 180s)';
+-          reject(new Error(this.lastError));
++          try { this.child.kill(); } catch { /* already dead */ }
++          fail('lokal AI-server svarer ikke (timeout 180s)');
+         }
+       }, 700);
+     });
+diff --git a/src/main/main.js b/src/main/main.js
+index 91fdd79..b15e87c 100644
+--- a/src/main/main.js
++++ b/src/main/main.js
+@@ -34,6 +34,7 @@ const ptyManager = new TerminalManager();
+ 
+ let mainWindow = null;
+ const activeChats = new Map();          // chat id -> AbortController
++const terminalInput = new Map();        // PTY id -> line buffer for typed-command history
+ 
+ // Diagnostic: proves whether a (re)launched process actually reaches main.js
+ logDiag(`[boot] pid=${process.pid} argv=${JSON.stringify(process.argv.slice(1))}`);
+@@ -41,6 +42,50 @@ logDiag(`[boot] pid=${process.pid} argv=${JSON.stringify(process.argv.slice(1))}
+ // Permanent history (portable: lives on the USB stick's Data folder)
+ const historyStore = new HistoryStore(path.join(settings.dataDir, 'history.jsonl'));
+ 
++/**
++ * Record commands typed directly into a terminal tab. xterm writes one
++ * keystroke at a time, so the old "data ends with a carriage return" check
++ * only ever saw the prompt box / AI commands — never what the user typed.
++ * Escape sequences (arrow keys, paste markers) and editing keys are ignored.
++ */
++function recordTerminalInput(id, data) {
++  if (typeof data !== 'string' || !data) return;
++  let st = terminalInput.get(id);
++  if (!st) {
++    st = { line: '', escape: 0 };
++    terminalInput.set(id, st);
++  }
++  for (const ch of data) {
++    const code = ch.charCodeAt(0);
++    // 0 = normal, 1 = saw ESC, 2 = inside a CSI sequence
++    if (st.escape === 1) {
++      if (ch === '[' || ch === 'O') { st.escape = 2; continue; }
++      // Lone ESC (clears the shell line) or Alt+key — drop the ESC byte and
++      // process this character as ordinary input instead of swallowing it.
++      st.escape = 0;
++    }
++    if (st.escape === 2) {
++      if (code >= 64 && code <= 126) {
++        // Up/down replace the shell's whole input line (history recall), so
++        // the buffer must not record the text that was there before.
++        if (ch === 'A' || ch === 'B') st.line = '';
++        st.escape = 0;
++      }
++      continue;
++    }
++    if (code === 27) { st.escape = 1; continue; }                 // ESC
++    if (code === 13 || code === 10) {                             // Enter
++      const cmd = st.line.trim();
++      st.line = '';
++      if (cmd) historyStore.add({ type: 'local', command: cmd });
++      continue;
++    }
++    if (code === 127 || code === 8) { st.line = st.line.slice(0, -1); continue; } // Backspace
++    if (code === 3 || code === 21) { st.line = ''; continue; }    // Ctrl+C / Ctrl+U
++    if (code >= 32) st.line = (st.line + ch).slice(-4000);
++  }
++}
++
+ // Embedded offline AI (llama.cpp + hardcoded PowerShell model)
+ // Root lives in the data dir, so portable mode keeps it on the USB stick
+ const localAI = new LocalAI({
+@@ -85,8 +130,12 @@ function migrateLocalAiAssets() {
+           }
+         }
+       };
+-      moveAll(path.join(legacyRoot, 'models'), path.join(target, 'models'));
+-      moveAll(path.join(legacyRoot, 'llama-cpp'), path.join(target, 'llama-cpp'));
++      if (fs.existsSync(path.join(legacyRoot, 'models'))) {
++        moveAll(path.join(legacyRoot, 'models'), path.join(target, 'models'));
++      }
++      if (fs.existsSync(path.join(legacyRoot, 'llama-cpp'))) {
++        moveAll(path.join(legacyRoot, 'llama-cpp'), path.join(target, 'llama-cpp'));
++      }
+       logDiag('[localai] legacy assets migrated into portable data dir');
+     }
+     // Legacy copy removed afterwards — nothing should keep using it
+@@ -172,8 +221,10 @@ function createWindow() {
+ 
+   mainWindow.on('resize', saveBounds);
+   mainWindow.on('move', saveBounds);
++  mainWindow.on('close', flushBounds);
+ 
+   mainWindow.on('closed', () => {
++    clearTimeout(boundsTimer);
+     mainWindow = null;
+   });
+ 
+@@ -329,7 +380,18 @@ ipcMain.handle('app:relaunchAdmin', () => {
+   return { started: relaunchElevated() };
+ });
+ 
++let boundsTimer = null;
++
++// Resize/move fire many times per second. Writing settings.json synchronously
++// on every event was unnecessary disk I/O — debounce and flush on close.
+ function saveBounds() {
++  clearTimeout(boundsTimer);
++  boundsTimer = setTimeout(flushBounds, 350);
++}
++
++function flushBounds() {
++  clearTimeout(boundsTimer);
++  boundsTimer = null;
+   if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isMinimized()) {
+     settings.set('windowBounds', mainWindow.getBounds());
+   }
+@@ -339,27 +401,27 @@ function saveBounds() {
+ function buildMenu() {
+   const template = [
+     {
+-      label: 'File',
++      label: 'Filer',
+       submenu: [
+-        { label: 'New Tab', accelerator: 'CmdOrCtrl+T', click: () => sendAction('new-tab') },
+-        { label: 'Close Tab', accelerator: 'CmdOrCtrl+W', click: () => sendAction('close-tab') },
++        { label: 'Ny fane', accelerator: 'CmdOrCtrl+T', click: () => sendAction('new-tab') },
++        { label: 'Luk fane', accelerator: 'CmdOrCtrl+W', click: () => sendAction('close-tab') },
+         { type: 'separator' },
+-        { label: 'Settings', accelerator: 'CmdOrCtrl+,', click: () => sendAction('settings') },
++        { label: 'Indstillinger', accelerator: 'CmdOrCtrl+,', click: () => sendAction('settings') },
+         { type: 'separator' },
+-        { role: 'quit' },
++        { role: 'quit', label: 'Afslut' },
+       ],
+     },
+     {
+-      label: 'View',
++      label: 'Vis',
+       submenu: [
+-        { label: 'Toggle AI Panel', accelerator: 'CmdOrCtrl+J', click: () => sendAction('toggle-ai') },
++        { label: 'Vis/skjul AI-panel', accelerator: 'CmdOrCtrl+J', click: () => sendAction('toggle-ai') },
+         { label: 'Historik', accelerator: 'CmdOrCtrl+H', click: () => sendAction('history') },
+         { type: 'separator' },
+-        { label: 'Zoom In', accelerator: 'CmdOrCtrl+=', click: () => mainWindow?.webContents.zoomIn() },
+-        { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => mainWindow?.webContents.zoomOut() },
+-        { label: 'Reset Zoom (100%)', accelerator: 'CmdOrCtrl+0', click: () => mainWindow?.webContents.setZoomLevel(0) },
++        { label: 'Zoom ind', accelerator: 'CmdOrCtrl+=', click: () => mainWindow?.webContents.zoomIn() },
++        { label: 'Zoom ud', accelerator: 'CmdOrCtrl+-', click: () => mainWindow?.webContents.zoomOut() },
++        { label: 'Nulstil zoom (100 %)', accelerator: 'CmdOrCtrl+0', click: () => mainWindow?.webContents.setZoomLevel(0) },
+         { type: 'separator' },
+-        { role: 'toggleDevTools' },
++        { role: 'toggleDevTools', label: 'Udviklerværktøjer' },
+       ],
+     },
+   ];
+@@ -389,11 +451,9 @@ ipcMain.handle('terminal:create', (_e, { shell }) => {
+ 
+ ipcMain.on('terminal:write', (_e, { id, data }) => {
+   ptyManager.write(id, data);
+-  // Permanent history: full lines written to the PTY (prompt box, AI Run,
+-  // pasted commands). Single keystrokes are ignored.
+-  if (typeof data === 'string' && data.length > 2 && data.endsWith('\r')) {
+-    historyStore.add({ type: 'local', command: data.slice(0, -1).replace(/\r\n/g, '') });
+-  }
++  // Permanent history: every completed line, whether it was typed directly
++  // in the tab, pasted, or written by the prompt box / AI Run.
++  recordTerminalInput(id, data);
+ });
+ 
+ ipcMain.on('terminal:resize', (_e, { id, cols, rows }) => {
+@@ -401,6 +461,7 @@ ipcMain.on('terminal:resize', (_e, { id, cols, rows }) => {
+ });
+ 
+ ipcMain.on('terminal:destroy', (_e, { id }) => {
++  terminalInput.delete(id);
+   ptyManager.destroy(id);
+ });
+ 
+@@ -412,6 +473,7 @@ ptyManager.on('data', (id, data) => {
+ });
+ 
+ ptyManager.on('exit', (id, code) => {
++  terminalInput.delete(id);
+   if (mainWindow && !mainWindow.isDestroyed()) {
+     mainWindow.webContents.send('terminal:exit', { id, code });
+   }
+@@ -649,9 +711,22 @@ ipcMain.handle('agent:start', async (_e, { sessionId, job }) => {
+   const cleanJob = String(job || '').slice(0, 4000).trim();
+   if (!cleanJob) return { ok: false, error: 'tomt job' };
+ 
++  const agentSettings = settings.getAll();
+   let aiConfig;
+   try {
+-    aiConfig = await resolveLocalProvider(effectiveAiConfig());
++    // "Agent-motor" in Settings decides who drives the loop. The AI provider
++    // setting only chooses the brain for the built-in autopilot; selecting
++    // Antigravity must not start/download the embedded local AI first.
++    if (agentSettings.agentEngine === 'antigravity') {
++      aiConfig = {
++        provider: 'antigravity-cli',
++        model: agentSettings.agyModel || '',
++        baseUrl: '',
++        apiKey: '',
++      };
++    } else {
++      aiConfig = await resolveLocalProvider(effectiveAiConfig());
++    }
+   } catch (err) {
+     return { ok: false, error: `Lokal AI kunne ikke starte: ${err.message || err}` };
+   }
+@@ -660,7 +735,7 @@ ipcMain.handle('agent:start', async (_e, { sessionId, job }) => {
+     id,
+     job: cleanJob,
+     aiConfig,
+-    settings: settings.getAll(),
++    settings: agentSettings,
+     deps: {
+       emit: (agentId, event) => {
+         if (mainWindow && !mainWindow.isDestroyed()) {
+diff --git a/src/main/pty.js b/src/main/pty.js
+index 81efc8c..263c6f7 100644
+--- a/src/main/pty.js
++++ b/src/main/pty.js
+@@ -16,13 +16,16 @@ const MAX_BUFFER = 40000; // chars kept per session for AI context
+ 
+ function detectDefaultShell() {
+   if (process.platform !== 'win32') return process.env.SHELL || 'bash';
+-  for (const exe of ['pwsh.exe', 'powershell.exe']) {
+-    try {
+-      if (fs.existsSync(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', exe))) {
+-        return exe.replace('.exe', '');
+-      }
+-    } catch { /* ignore */ }
+-  }
++  if (findPwsh()) return 'pwsh';
++  try {
++    // Windows PowerShell lives under System32\WindowsPowerShell\v1.0 — not
++    // directly in System32. The old lookup therefore fell through to cmd on
++    // a perfectly normal Windows box.
++    if (fs.existsSync(path.join(
++      process.env.SystemRoot || 'C:\\Windows',
++      'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe',
++    ))) return 'powershell';
++  } catch { /* ignore */ }
+   return 'cmd';
+ }
+ 
+@@ -37,13 +40,13 @@ function shellProfile(shell) {
+     case 'pwsh':
+       return {
+         file: 'pwsh.exe',
+-        name: 'PowerShell (Core)',
++        name: 'PowerShell 7',
+         args: ['-NoLogo'],
+       };
+     case 'cmd':
+       return {
+         file: 'cmd.exe',
+-        name: 'Command Prompt',
++        name: 'Kommandoprompt',
+         args: [],
+       };
+     case 'gitbash':
+@@ -72,6 +75,31 @@ function findGitBash() {
+   });
+ }
+ 
++/** Find an executable in PATH (used for pwsh installed outside Program Files). */
++function findOnPath(exe) {
++  const dirs = String(process.env.PATH || '').split(path.delimiter).filter(Boolean);
++  for (const dir of dirs) {
++    try {
++      const candidate = path.join(dir, exe);
++      if (fs.existsSync(candidate)) return candidate;
++    } catch { /* unreadable PATH entry */ }
++  }
++  return '';
++}
++
++/** PowerShell 7 can live in Program Files, the Store alias, or anywhere on PATH. */
++function findPwsh() {
++  if (process.platform !== 'win32') return findOnPath('pwsh');
++  const candidates = [
++    path.join(process.env.ProgramFiles || 'C:\\Program Files', 'PowerShell', '7', 'pwsh.exe'),
++    path.join(process.env.ProgramFiles || 'C:\\Program Files', 'PowerShell', '7-preview', 'pwsh.exe'),
++    path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'WindowsApps', 'pwsh.exe'),
++  ];
++  return candidates.find((c) => {
++    try { return fs.existsSync(c); } catch { return false; }
++  }) || findOnPath('pwsh.exe');
++}
++
+ class TerminalManager extends EventEmitter {
+   constructor() {
+     super();
+@@ -98,7 +126,7 @@ class TerminalManager extends EventEmitter {
+     })();
+     return {
+       powershell: winPowerShell || sys32('powershell.exe'),
+-      pwsh: fs.existsSync('C:\\Program Files\\PowerShell\\7\\pwsh.exe'),
++      pwsh: Boolean(findPwsh()),
+       cmd: sys32('cmd.exe'),
+       gitbash: Boolean(findGitBash()),
+     };
+@@ -113,16 +141,16 @@ class TerminalManager extends EventEmitter {
+       if (gitBash) {
+         file = gitBash;
+       } else {
+-        throw new Error('Git Bash not found — install Git for Windows or pick another shell');
++        throw new Error('Git Bash blev ikke fundet — installér Git til Windows, eller vælg en anden shell');
+       }
+     }
+-    if (file === 'pwsh.exe' && !fs.existsSync('C:\\Program Files\\PowerShell\\7\\pwsh.exe')) {
+-      throw new Error('PowerShell 7 (pwsh) not installed');
++    if (file === 'pwsh.exe' && !findPwsh()) {
++      throw new Error('PowerShell 7 (pwsh) er ikke installeret');
+     }
+ 
+     const resolvedCwd = cwd || os.homedir();
+     const env = { ...process.env };
+-    env.ELECTRON_RUN_AS_NODE = undefined;
++    delete env.ELECTRON_RUN_AS_NODE;
+     env.TERM = 'xterm-256color';
+     env.COLORTERM = 'truecolor';
+     env.LENNART_TERMINAL = '1';
+diff --git a/src/main/remote.js b/src/main/remote.js
+index 845bbab..c1d7d1a 100644
+--- a/src/main/remote.js
++++ b/src/main/remote.js
+@@ -79,6 +79,7 @@ class RemoteRunner {
+     return new Promise((resolve) => {
+       let out = '';
+       let timedOut = false;
++      let settled = false;
+       this.log(`remote: ${hostCfg.method || 'ssh'} ${hostCfg.host}: ${command.slice(0, 120)}`);
+ 
+       let child;
+@@ -94,6 +95,13 @@ class RemoteRunner {
+         try { child.kill(); } catch { /* already dead */ }
+       }, limit);
+ 
++      const finish = (result) => {
++        if (settled) return;
++        settled = true;
++        clearTimeout(timer);
++        resolve(result);
++      };
++
+       const onData = (chunk) => {
+         const text = chunk.toString('utf8');
+         out += text;
+@@ -103,12 +111,12 @@ class RemoteRunner {
+       child.stderr.on('data', onData);
+ 
+       child.on('error', (err) => {
+-        clearTimeout(timer);
+-        resolve({ ok: false, code: -1, output: out + `\n[fejl: ${err.message}]`, timedOut });
++        finish({ ok: false, code: -1, output: out + `\n[fejl: ${err.message}]`, timedOut });
+       });
+-      child.on('exit', (code) => {
+-        clearTimeout(timer);
+-        resolve({ ok: !timedOut && code === 0, code: code === null ? -1 : code, output: out, timedOut });
++      // 'close' (not 'exit') guarantees stdout/stderr are fully drained, so
++      // the returned output and the permanent history do not miss the tail.
++      child.on('close', (code) => {
++        finish({ ok: !timedOut && code === 0, code: code === null ? -1 : code, output: out, timedOut });
+       });
+     });
+   }
+diff --git a/src/main/store.js b/src/main/store.js
+index ac3034e..f5a1604 100644
+--- a/src/main/store.js
++++ b/src/main/store.js
+@@ -17,10 +17,19 @@ const path = require('path');
+ const KNOWN_PROVIDERS = new Set([
+   'lennart-local',
+   'antigravity-cli',
+-  'ollama', 'lmstudio', 'local', 'openai-compatible',
+-  'openrouter', 'omniroute', 'openai', 'anthropic', 'gemini', 'qwen', 'kimi',
++  'ollama', 'lmstudio', 'openai-compatible',
++  'openrouter', 'omniroute', 'openai', 'anthropic', 'gemini', 'dashscope', 'moonshot',
+ ]);
+ 
++// Provider ids used by older builds → their current equivalent. These used to
++// look "known" and slip through migration, leaving Settings with a provider
++// id that no longer exists in the catalog (empty select, chat errors).
++const PROVIDER_ALIASES = {
++  local: 'ollama',
++  qwen: 'dashscope',
++  kimi: 'moonshot',
++};
++
+ const DEFAULTS = {
+   version: 3.1,
+   shell: 'powershell',
+@@ -113,11 +122,23 @@ class SettingsStore {
+    */
+   _migrateStaleProvider() {
+     const ai = this.data && this.data.ai;
++    if (ai && PROVIDER_ALIASES[ai.provider]) {
++      ai.provider = PROVIDER_ALIASES[ai.provider];
++    }
+     if (ai && ai.provider && !KNOWN_PROVIDERS.has(ai.provider)) {
+       this.data.ai.provider = DEFAULTS.ai.provider;
+       this.data.ai.model = '';
+       this.data.version = DEFAULTS.version;
+     }
++    // Move the saved key/model record to the renamed provider as well.
++    const providers = this.data && this.data.providers;
++    if (isPlainObject(providers)) {
++      for (const [oldId, newId] of Object.entries(PROVIDER_ALIASES)) {
++        if (!providers[oldId]) continue;
++        providers[newId] = { ...providers[oldId], ...(providers[newId] || {}) };
++        delete providers[oldId];
++      }
++    }
+   }
+ 
+   /**
+diff --git a/src/preload/preload.js b/src/preload/preload.js
+index b6bd609..1ae0faf 100644
+--- a/src/preload/preload.js
++++ b/src/preload/preload.js
+@@ -9,6 +9,17 @@ try {
+   );
+ } catch (e) { /* diagnostics only */ }
+ 
++/**
++ * Subscribe to an IPC push channel and return an unsubscribe function.
++ * Every terminal tab registers its own listeners, so without this they piled
++ * up forever after tabs were closed.
++ */
++function subscribe(channel, cb) {
++  const handler = (_event, payload) => cb(payload);
++  ipcRenderer.on(channel, handler);
++  return () => ipcRenderer.removeListener(channel, handler);
++}
++
+ contextBridge.exposeInMainWorld('lennart', {
+   // terminal
+   createTerminal: (opts) => ipcRenderer.invoke('terminal:create', opts),
+@@ -16,8 +27,8 @@ contextBridge.exposeInMainWorld('lennart', {
+   writeTerminal: (id, data) => ipcRenderer.send('terminal:write', { id, data }),
+   resizeTerminal: (id, cols, rows) => ipcRenderer.send('terminal:resize', { id, cols, rows }),
+   destroyTerminal: (id) => ipcRenderer.send('terminal:destroy', { id }),
+-  onTerminalData: (cb) => ipcRenderer.on('terminal:data', (_e, payload) => cb(payload)),
+-  onTerminalExit: (cb) => ipcRenderer.on('terminal:exit', (_e, payload) => cb(payload)),
++  onTerminalData: (cb) => subscribe('terminal:data', cb),
++  onTerminalExit: (cb) => subscribe('terminal:exit', cb),
+ 
+   // settings
+   getSettings: () => ipcRenderer.invoke('settings:get'),
+@@ -30,14 +41,14 @@ contextBridge.exposeInMainWorld('lennart', {
+   providersCatalog: () => ipcRenderer.invoke('ai:providers'),
+   chat: (payload) => ipcRenderer.send('ai:chat', payload),
+   cancelChat: (id) => ipcRenderer.send('ai:chat:cancel', { id }),
+-  onChatChunk: (cb) => ipcRenderer.on('ai:chat:chunk', (_e, payload) => cb(payload)),
+-  onChatDone: (cb) => ipcRenderer.on('ai:chat:done', (_e, payload) => cb(payload)),
+-  onChatError: (cb) => ipcRenderer.on('ai:chat:error', (_e, payload) => cb(payload)),
++  onChatChunk: (cb) => subscribe('ai:chat:chunk', cb),
++  onChatDone: (cb) => subscribe('ai:chat:done', cb),
++  onChatError: (cb) => subscribe('ai:chat:error', cb),
+ 
+   // agent (autopilot + antigravity engine)
+   agentStart: (payload) => ipcRenderer.invoke('agent:start', payload),
+   agentStop: (id) => ipcRenderer.send('agent:stop', { id }),
+-  onAgentEvent: (cb) => ipcRenderer.on('agent:event', (_e, payload) => cb(payload)),
++  onAgentEvent: (cb) => subscribe('agent:event', cb),
+   agyAvailable: () => ipcRenderer.invoke('ai:agyAvailable'),
+   agyModels: () => ipcRenderer.invoke('ai:agyModels'),
+ 
+@@ -46,7 +57,7 @@ contextBridge.exposeInMainWorld('lennart', {
+   localaiEnsure: () => ipcRenderer.invoke('localai:ensure'),
+   localaiListModels: () => ipcRenderer.invoke('localai:listModels'),
+   localaiDownloadModel: (spec) => ipcRenderer.invoke('localai:downloadModel', spec),
+-  onLocalaiProgress: (cb) => ipcRenderer.on('localai:progress', (_e, payload) => cb(payload)),
++  onLocalaiProgress: (cb) => subscribe('localai:progress', cb),
+ 
+   // network hosts + remote execution
+   hostsList: () => ipcRenderer.invoke('hosts:list'),
+@@ -55,7 +66,7 @@ contextBridge.exposeInMainWorld('lennart', {
+   hostsSshSetupCommand: () => ipcRenderer.invoke('hosts:sshSetupCommand'),
+   remoteTest: (host) => ipcRenderer.invoke('remote:test', host),
+   remoteRun: (payload) => ipcRenderer.invoke('remote:run', payload),
+-  onRemoteData: (cb) => ipcRenderer.on('remote:data', (_e, payload) => cb(payload)),
++  onRemoteData: (cb) => subscribe('remote:data', cb),
+ 
+   // permanent history
+   historyQuery: (opts) => ipcRenderer.invoke('history:query', opts),
+@@ -77,5 +88,5 @@ contextBridge.exposeInMainWorld('lennart', {
+   closeWindow: () => ipcRenderer.send('app:close'),
+ 
+   // native menu actions (File/View accelerators)
+-  onMenuAction: (cb) => ipcRenderer.on('app:menu-action', (_e, action) => cb(action)),
++  onMenuAction: (cb) => subscribe('app:menu-action', cb),
+ });
+diff --git a/src/renderer/css/warp.css b/src/renderer/css/warp.css
+index fdbe7e3..5020506 100644
+--- a/src/renderer/css/warp.css
++++ b/src/renderer/css/warp.css
+@@ -500,6 +500,14 @@ kbd {
+   margin-right: auto;
+ }
+ .msg code { font-family: var(--mono); font-size: 11.5px; }
++.msg-body .md-head {
++  margin: 12px 0 5px;
++  font-weight: 700;
++  color: var(--text);
++}
++
++.msg-body .md-head:first-child { margin-top: 0; }
++
+ .msg p { margin: 0 0 6px; }
+ .msg p:last-child { margin-bottom: 0; }
+ .msg ul, .msg ol { margin: 4px 0 6px 18px; }
+diff --git a/src/renderer/index.html b/src/renderer/index.html
+index 664b986..234e6f5 100644
+--- a/src/renderer/index.html
++++ b/src/renderer/index.html
+@@ -1,5 +1,5 @@
+ <!DOCTYPE html>
+-<html lang="en">
++<html lang="da">
+ <head>
+   <meta charset="UTF-8" />
+   <meta http-equiv="Content-Security-Policy"
+@@ -16,11 +16,11 @@
+     </div>
+     <div class="titlebar-actions">
+       <button id="btn-history" class="tb-btn" title="Historik (Ctrl+H)">&#128218;</button>
+-      <button id="btn-settings" class="tb-btn" title="Settings (Ctrl+,)">&#9881;</button>
+-      <button id="btn-devtools" class="tb-btn" title="Toggle Developer Tools">&#128366;</button>
+-      <button id="btn-minimize" class="tb-btn" title="Minimize">&#8211;</button>
+-      <button id="btn-maximize" class="tb-btn" title="Maximize">&#9633;</button>
+-      <button id="btn-close" class="tb-btn tb-close" title="Close">&#10005;</button>
++      <button id="btn-settings" class="tb-btn" title="Indstillinger (Ctrl+,)">&#9881;</button>
++      <button id="btn-devtools" class="tb-btn" title="Åbn/luk udviklerværktøjer">&#128366;</button>
++      <button id="btn-minimize" class="tb-btn" title="Minimér">&#8211;</button>
++      <button id="btn-maximize" class="tb-btn" title="Maksimér">&#9633;</button>
++      <button id="btn-close" class="tb-btn tb-close" title="Luk">&#10005;</button>
+     </div>
+   </div>
+ 
+@@ -31,17 +31,17 @@
+     <aside id="sidebar">
+       <div class="side-section">
+         <div class="side-label">Session</div>
+-        <button id="btn-new-tab" class="side-btn primary" title="New terminal tab (Ctrl+T)">
+-          <span class="ico">&#65291;</span> New Tab
++        <button id="btn-new-tab" class="side-btn primary" title="Ny terminalfane (Ctrl+T)">
++          <span class="ico">&#65291;</span> Ny fane
+         </button>
+       </div>
+ 
+       <div class="side-section">
+-        <div class="side-label">Shells</div>
++        <div class="side-label">Terminaler</div>
+         <div class="btn-grid-2">
+           <button class="side-btn shell-btn" data-shell="powershell">PowerShell</button>
+           <button class="side-btn shell-btn" data-shell="pwsh">PowerShell 7</button>
+-          <button class="side-btn shell-btn" data-shell="cmd">Command Prompt</button>
++          <button class="side-btn shell-btn" data-shell="cmd">Kommandoprompt</button>
+           <button class="side-btn shell-btn" data-shell="gitbash">Git Bash</button>
+         </div>
+       </div>
+@@ -54,7 +54,7 @@
+       <div class="side-section">
+         <div class="side-label">Netværk
+           <span class="info-dot" tabindex="0"
+-                title="Fjernsupport p&#229; LAN&#10;• Krav: begge PC'er p&#229; samme netv&#230;rk&#10;• SSH: sl&#229; til p&#229; m&#229;l-PC'en (Setup → “Sl&#229; SSH til” som admin) — eller WinRM: Enable-PSRemoting -Force&#10;• Tilf&#248;j v&#230;rt med brugernavn/adgangskode — eller skriv blot en IP her og tryk Forbind&#10;• Kommandoer i fjern-fanen k&#248;res p&#229; fjernv&#230;rten">i</span>
++                title="Fjernsupport p&#229; LAN&#10;• Krav: begge PC'er p&#229; samme netv&#230;rk&#10;• SSH: sl&#229; til p&#229; m&#229;l-PC'en (Opsætning → “Sl&#229; SSH til” som admin) — eller WinRM: Enable-PSRemoting -Force&#10;• Tilf&#248;j v&#230;rt med brugernavn/adgangskode — eller skriv blot en IP her og tryk Forbind&#10;• Kommandoer i fjern-fanen k&#248;res p&#229; fjernv&#230;rten">i</span>
+         </div>
+         <div class="quick-connect">
+           <input id="quick-host-ip" type="text" spellcheck="false" placeholder="IP, fx 192.168.1.50" />
+@@ -68,16 +68,16 @@
+ 
+       <div class="side-section">
+         <div class="side-label">AI</div>
+-        <button id="btn-toggle-ai" class="side-btn" title="Show/hide AI panel (Ctrl+J)">
+-          <span class="ico">&#10022;</span> AI Panel
++        <button id="btn-toggle-ai" class="side-btn" title="Vis/skjul AI-panel (Ctrl+J)">
++          <span class="ico">&#10022;</span> AI-panel
+         </button>
+-        <button id="btn-agent-mode" class="side-btn" title="Toggle agent system prompt">
+-          <span class="ico">&#9679;</span> Agent Mode: <span id="agent-mode-state">On</span>
++        <button id="btn-agent-mode" class="side-btn" title="Slå agent-systemprompt til/fra">
++          <span class="ico">&#9679;</span> Agent-tilstand: <span id="agent-mode-state">Til</span>
+         </button>
+       </div>
+ 
+       <div class="side-footer">
+-        <div class="status-row"><span class="status-dot" id="ai-status-dot"></span><span id="ai-status-text">AI: checking…</span></div>
++        <div class="status-row"><span class="status-dot" id="ai-status-dot"></span><span id="ai-status-text">AI: tjekker…</span></div>
+         <div class="status-row elev-row hidden" id="elev-row"
+              title="Tryk for at genstart Lennart Terminal som administrator (UAC)">⚠ Kører uden administrator</div>
+         <div class="status-row brand-row" id="brand-row">Lennart Terminal</div>
+@@ -89,7 +89,7 @@
+       <!-- Tab strip -->
+       <div id="tabstrip">
+         <div id="tabs"></div>
+-        <button id="btn-new-tab-inline" title="New tab">+</button>
++        <button id="btn-new-tab-inline" title="Ny fane">+</button>
+         <button id="btn-copy-term" title="Kopiér markeret tekst i terminalen (eller Ctrl+Shift+C / højreklik)">&#10697; Kopiér</button>
+       </div>
+ 
+@@ -103,12 +103,12 @@
+             <div class="prompt-row">
+               <span class="prompt-icon">&#10095;</span>
+               <span class="prompt-field">
+-                <span id="prompt-hint"><b>Ask AI (Ctrl+Enter)</b> or type a command…</span>
++                <span id="prompt-hint"><b>Spørg AI (Ctrl+Enter)</b> eller skriv en kommando…</span>
+                 <input id="prompt-input" type="text" spellcheck="false" autocomplete="off"
+-                       title="Enter = kør · Ctrl+Enter = spørg AI · Ctrl+Shift+C = kopiér markering · Ctrl+J = AI-panel · Ctrl+H = historik · Ctrl+, = setup"
+-                       aria-label="Ask AI, eller skriv en kommando" placeholder="" />
++                       title="Enter = kør · Ctrl+Enter = spørg AI · Ctrl+Shift+C = kopiér markering · Ctrl+J = AI-panel · Ctrl+H = historik · Ctrl+, = opsætning"
++                       aria-label="Spørg AI, eller skriv en kommando" placeholder="" />
+               </span>
+-              <span id="cwd-label" class="cwd-label" title="Working directory"></span>
++              <span id="cwd-label" class="cwd-label" title="Arbejdsmappe"></span>
+             </div>
+           </div>
+         </section>
+@@ -120,16 +120,16 @@
+               <button id="chip-chat" class="chip active" title="Almindelig chat — AI foreslår, du kører">Chat</button>
+               <button id="chip-agent" class="chip" title="Agent — AI overtager styringen og kører jobbet i terminalen">Agent</button>
+             </div>
+-            <button id="btn-clear-chat" class="ai-head-btn" title="Clear conversation">Clear</button>
++            <button id="btn-clear-chat" class="ai-head-btn" title="Ryd samtalen">Ryd</button>
+           </header>
+           <div id="ai-messages"></div>
+           <div id="ai-suggestions"></div>
+           <form id="ai-composer">
+             <textarea id="ai-input" rows="2" placeholder="Spørg AI-en … (Enter = send · skriv /help for hjælp og fejlsøgning)"></textarea>
+             <div class="ai-composer-row">
+-              <button type="button" id="btn-send-terminal" title="Send last terminal output as context">Attach last output</button>
++              <button type="button" id="btn-send-terminal" title="Send seneste terminaloutput som kontekst">Vedhæft seneste output</button>
+               <span class="spacer"></span>
+-              <button type="button" id="btn-ai-stop" title="Stop generating" hidden>Stop</button>
++              <button type="button" id="btn-ai-stop" title="Stop generering" hidden>Stop</button>
+               <button type="submit" id="btn-ai-send">Send</button>
+             </div>
+           </form>
+@@ -164,8 +164,8 @@
+   <div id="settings-overlay" class="hidden">
+     <div id="settings-dialog" role="dialog" aria-modal="true">
+       <header>
+-        <h2>Settings</h2>
+-        <button id="btn-close-settings" class="tb-btn" title="Close">&#10005;</button>
++        <h2>Indstillinger</h2>
++        <button id="btn-close-settings" class="tb-btn" title="Luk">&#10005;</button>
+       </header>
+ 
+       <div class="settings-body">
+@@ -182,7 +182,7 @@
+           <h3>AI &amp; modeller</h3>
+ 
+           <label class="field">
+-            <span>Provider</span>
++            <span>Udbyder</span>
+             <select id="set-provider"></select>
+           </label>
+ 
+@@ -264,13 +264,13 @@
+           </label>
+ 
+           <div class="field-check">
+-            <label><input type="checkbox" id="set-agent-mode" /> Agent mode (system prompt with terminal rules)</label>
+-            <label><input type="checkbox" id="set-confirm" /> Confirm before running destructive AI commands</label>
++            <label><input type="checkbox" id="set-agent-mode" /> Agent-tilstand (systemprompt med terminalregler)</label>
++            <label><input type="checkbox" id="set-confirm" /> Bekræft før AI'en kører ødelæggende kommandoer</label>
+             <label><input type="checkbox" id="set-autorun" /> AI må udføre kommandoer automatisk, når du beder om det</label>
+           </div>
+ 
+           <div class="conn-row">
+-            <button id="btn-test-conn" type="button">Test connection</button>
++            <button id="btn-test-conn" type="button">Test forbindelse</button>
+             <span id="conn-result"></span>
+           </div>
+         </section>
+@@ -299,11 +299,11 @@
+         <section id="sec-net">
+           <h3>Netværk &amp; fjernstyring
+             <span class="info-dot" tabindex="0"
+-                  title="Krav for at forbinde til en anden PC p&#229; LAN'et:&#10;• begge PC'er p&#229; samme netv&#230;rk&#10;• SSH sl&#229;et til p&#229; m&#229;l-PC'en (kør “Sl&#229; SSH til” som admin — se menuen Setup) eller WinRM (Enable-PSRemoting -Force)&#10;• brugernavn/adgangskode p&#229; m&#229;l-PC'en&#10;V&#230;rter gemmes her og &#229;bnes som en fjern-fane, hvor alle kommandoer k&#248;res p&#229; fjernv&#230;rten.">i</span>
++                  title="Krav for at forbinde til en anden PC p&#229; LAN'et:&#10;• begge PC'er p&#229; samme netv&#230;rk&#10;• SSH sl&#229;et til p&#229; m&#229;l-PC'en (kør “Sl&#229; SSH til” som admin — se menuen Opsætning) eller WinRM (Enable-PSRemoting -Force)&#10;• brugernavn/adgangskode p&#229; m&#229;l-PC'en&#10;V&#230;rter gemmes her og &#229;bnes som en fjern-fane, hvor alle kommandoer k&#248;res p&#229; fjernv&#230;rten.">i</span>
+           </h3>
+           <p class="small">Hold musen over <b>i</b> for kravene — værter gemmes her og åbnes som en fjern-fane.</p>
+           <div class="conn-row">
+-            <button id="btn-show-ssh-setup" type="button">SSH setup-kommando</button>
++            <button id="btn-show-ssh-setup" type="button">SSH-opsætningskommando</button>
+             <span id="ssh-setup-note" class="small"></span>
+           </div>
+         </section>
+@@ -311,16 +311,16 @@
+         <section id="sec-term">
+           <h3>Terminal</h3>
+           <label class="field">
+-            <span>Default shell</span>
++            <span>Standard-shell</span>
+             <select id="set-shell">
+               <option value="powershell">PowerShell</option>
+               <option value="pwsh">PowerShell 7 (pwsh)</option>
+-              <option value="cmd">Command Prompt</option>
++              <option value="cmd">Kommandoprompt</option>
+               <option value="gitbash">Git Bash</option>
+             </select>
+           </label>
+           <label class="field">
+-            <span>Font scale</span>
++            <span>Skriftstørrelse</span>
+             <input id="set-fontscale" type="range" min="0.7" max="1.6" step="0.05" value="1" />
+           </label>
+         </section>
+@@ -333,7 +333,7 @@
+               <select id="set-theme">
+                 <option value="standard">Standard (mørk)</option>
+                 <option value="black">Dyb sort</option>
+-                <option value="ocean">Ocean (blå)</option>
++                <option value="ocean">Havblå</option>
+                 <option value="terminal">Terminal (grøn)</option>
+                 <option value="lys">Lys</option>
+               </select>
+@@ -341,22 +341,22 @@
+             <label class="field">
+               <span>Accentfarve</span>
+               <div class="row">
+-                <input id="set-accent" type="color" value="#7c6cff" title="Farve på knapper, markering og cursor" />
+-                <span class="small">knapper · markering · cursor</span>
++                <input id="set-accent" type="color" value="#7c6cff" title="Farve på knapper, markering og markør" />
++                <span class="small">knapper · markering · markør</span>
+               </div>
+             </label>
+           </div>
+           <p class="small">Tema ændrer baggrund og tekst overalt (inkl. terminalen). Accentfarven bruges til knapper,
+-          tekstmarkering og cursor — vælg frit og tryk Save.</p>
++          tekstmarkering og markør — vælg frit og tryk Gem.</p>
+         </section>
+ 
+         <section id="sec-about" class="settings-meta">
+           <h3>Om</h3>
+           <div id="settings-paths" class="mono small"></div>
+           <div class="row gap">
+-            <button id="btn-open-settings-file" type="button">Open settings.json</button>
++            <button id="btn-open-settings-file" type="button">Åbn settings.json</button>
+             <button id="btn-open-actions" type="button" title="github.com/h4xtor/Lennarts-Terminal/actions">GitHub Actions (CI)</button>
+-            <button id="btn-reset-settings" type="button" class="danger">Reset all settings</button>
++            <button id="btn-reset-settings" type="button" class="danger">Nulstil alle indstillinger</button>
+           </div>
+         </section>
+       </div>
+@@ -364,7 +364,7 @@
+       <footer>
+         <span class="small" id="settings-save-note"></span>
+         <span class="spacer"></span>
+-        <button id="btn-save-settings" class="primary">Save</button>
++        <button id="btn-save-settings" class="primary">Gem</button>
+       </footer>
+     </div>
+   </div>
+diff --git a/src/renderer/js/ai.js b/src/renderer/js/ai.js
+index b553fd3..53ce1e4 100644
+--- a/src/renderer/js/ai.js
++++ b/src/renderer/js/ai.js
+@@ -165,8 +165,8 @@ async function buildHelpContext() {
+   }
+ 
+   lines.push(`AI: ${s.ai?.provider || '?'} · ${s.ai?.model || 'indbygget standardmodel'} · auto-udfør: ${s.aiAutoRun === false ? 'fra' : 'til'} · bekræftelse før ødelæggende: ${s.confirmDestructive === false ? 'fra' : 'til'}.`);
+-  lines.push('Appen: Lennart Terminal — 20 netværksknapper i sidebar, dropdown-menuer øverst (Setup først), quick-connect til LAN-IP (SSH eller WinRM), AI-chat til højre som kan udføre kommandoer, historik (Ctrl+H), fjernfaner der kører kommandoer på andre PC’er.');
+-  lines.push('Genveje: Ctrl+T ny fane · Ctrl+J AI-panel · Ctrl+H historik · Ctrl+, setup · Ctrl+Shift+C kopiér markering.');
++  lines.push('Appen: Lennart Terminal — 20 netværksknapper i sidebar, dropdown-menuer øverst (Opsætning først), quick-connect til LAN-IP (SSH eller WinRM), AI-chat til højre som kan udføre kommandoer, historik (Ctrl+H), fjernfaner der kører kommandoer på andre PC’er.');
++  lines.push('Genveje: Ctrl+T ny fane · Ctrl+J AI-panel · Ctrl+H historik · Ctrl+, opsætning · Ctrl+Shift+C kopiér markering.');
+   lines.push('Svar på dansk og struktureret: (1) hvor personen står, (2) 2-4 sandsynlige årsager, (3) konkrete løsninger — giv kommandoer i ```powershell-kodeblokke.');
+ 
+   return lines.join('\n\n');
+@@ -181,7 +181,7 @@ async function sendHelpRequest(text) {
+   appendMessageEl('user', text);
+   aiState.helpContext = [
+     'Du er Lennart Terminals AI-assistent. Brugeren skrev "/help" i appen — det er IKKE et ønske om at køre PowerShell-kommandoen "help".',
+-    'Giv ENDIg ikke kun én kommando: lever en fejlsøgningsdiagnose.',
++    'Giv ikke kun én kommando: lever en fejlsøgningsdiagnose.',
+     'Kontekst for hvor personen står:',
+     ctx,
+     '',
+@@ -212,20 +212,20 @@ async function localHelpMarkdown(err) {
+     where || '- (kontekst ikke tilgængelig endnu)',
+     '',
+     '**Genveje**',
+-    '- `Ctrl+T` ny fane · `Ctrl+J` AI-panel · `Ctrl+H` historik · `Ctrl+,` Setup · `Ctrl+Shift+C` kopiér markering',
++    '- `Ctrl+T` ny fane · `Ctrl+J` AI-panel · `Ctrl+H` historik · `Ctrl+,` Opsætning · `Ctrl+Shift+C` kopiér markering',
+     '- I prompt-boksen nederst: `Enter` = kør kommandoen · `Ctrl+Enter` = spørg AI-en',
+     '',
+     '**Tjek først**',
+-    '1. Indbygget AI: `Get-Process llama-server` og `(Invoke-WebRequest -UseBasicParsing http://127.0.0.1:9601/health).Content` — starter den ikke, åbn **Setup → Hent modeller**.',
++    '1. Indbygget AI: `Get-Process llama-server` og `(Invoke-WebRequest -UseBasicParsing http://127.0.0.1:9601/health).Content` — starter den ikke, åbn **Opsætning → Hent modeller**.',
+     '2. Internet: `ping 1.1.1.1 -n 4` — API-modeller kræver forbindelse; den indbyggede kører offline.',
+-    '3. Fjern-PC: `Test-NetConnection <IP> -Port 22` — slå SSH til på mål-PC’en via **Setup → “Slå SSH til”** (admin), eller WinRM med `Enable-PSRemoting -Force`.',
++    '3. Fjern-PC: `Test-NetConnection <IP> -Port 22` — slå SSH til på mål-PC’en via **Opsætning → “Slå SSH til”** (admin), eller WinRM med `Enable-PSRemoting -Force`.',
+     '4. Kommandoer køres ikke? Se om fanen er en fjern-fane (navnet øverst) — der køres alt på fjernværten.',
+     '',
+     '**Brug af AI-en**',
+-    '- Skriv et spørgsmål i boksen her til højre; kodeblokke får knapperne **Kør**, **Insert** og **Copy**.',
+-    '- **Setup → Hent modeller** henter stærkere modeller (Qwen3 8B, Qwen2.5 Coder 7B, DeepSeek R1 7B) til den indbyggede AI.',
++    '- Skriv et spørgsmål i boksen her til højre; kodeblokke får knapperne **Kør**, **Indsæt** og **Kopiér**.',
++    '- **Opsætning → Hent modeller** henter stærkere modeller (Qwen3 8B, Qwen2.5 Coder 7B, DeepSeek R1 7B) til den indbyggede AI.',
+     '- Bed mig om en dybdegående diagnose via knappen herunder, hvis du vil have AI-en til at kigge på konteksten.',
+-    err ? `_(Fejl: ${err}) — prøv igen senere.)_` : '',
++    err ? `_(Fejl: ${err} — prøv igen senere.)_` : '',
+   ].filter(Boolean).join('\n');
+ }
+ 
+@@ -409,26 +409,26 @@ function failStreaming(error) {
+     showLocalHelpFallback(error);
+     return;
+   }
+-  appendMessageEl('error', `AI error: ${error}`);
++  appendMessageEl('error', `AI-fejl: ${error}`);
+   scrollBottom(true);
+ }
+ 
+ function attachTerminalOutput() {
+   const tab = activeTab();
+   if (!tab || !tab.sessionId) {
+-    appendMessageEl('error', 'No live terminal session to attach.');
++    appendMessageEl('error', 'Ingen levende terminalsession at vedhæfte.');
+     return;
+   }
+   const buf = (tab.outputBuf || '').trim();
+   if (!buf) {
+-    appendMessageEl('error', 'Terminal output buffer is empty — run something first.');
++    appendMessageEl('error', 'Terminalens output-buffer er tom — kør noget først.');
+     return;
+   }
+   aiState.messages.push({
+     role: 'user',
+-    content: `Recent terminal output (last ${buf.length} chars):\n\`\`\`\n${buf}\n\`\`\`\n(Use this as context for my next question.)`,
++    content: `Seneste terminaloutput (sidste ${buf.length} tegn):\n\`\`\`\n${buf}\n\`\`\`\n(Brug dette som kontekst til mit næste spørgsmål.)`,
+   });
+-  appendMessageEl('user', `📎 Attached ${buf.length} chars of recent terminal output`);
++  appendMessageEl('user', `📎 Vedhæftede ${buf.length} tegn seneste terminaloutput`);
+   scrollBottom(true);
+ }
+ 
+@@ -450,7 +450,7 @@ function appendMessageEl(role, text) {
+ 
+   const roleEl = document.createElement('div');
+   roleEl.className = 'msg-role';
+-  roleEl.textContent = role === 'user' ? 'You' : role === 'error' ? 'Error' : (aiState.modelLabel || 'AI');
++  roleEl.textContent = role === 'user' ? 'Dig' : role === 'error' ? 'Fejl' : (aiState.modelLabel || 'AI');
+ 
+   const body = document.createElement('div');
+   body.className = 'msg-body';
+@@ -505,13 +505,13 @@ function wireCodeBlockActions(scope) {
+     };
+ 
+     bar.append(
+-      mk('Copy', 'Copy to clipboard', () => navigator.clipboard.writeText(pre.getAttribute('data-code') || '')),
+-      mk('Insert', 'Insert into prompt box (Enter to run yourself)', () => {
++      mk('Kopiér', 'Kopiér til udklipsholderen', () => navigator.clipboard.writeText(pre.getAttribute('data-code') || '')),
++      mk('Indsæt', 'Indsæt i prompt-boksen (Enter = kør selv)', () => {
+         const inp = document.getElementById('prompt-input');
+         inp.value = pre.getAttribute('data-code') || '';
+         inp.focus();
+       }),
+-      mk('Run', 'Run in the active terminal tab', () => runAiCommand(pre.getAttribute('data-code') || '')),
++      mk('Kør', 'Kør i den aktive terminalfane', () => runAiCommand(pre.getAttribute('data-code') || '')),
+     );
+     if (lang) {
+       const tag = document.createElement('span');
+@@ -526,14 +526,14 @@ function wireCodeBlockActions(scope) {
+ async function runAiCommand(cmd) {
+   const tab = activeTab();
+   if (!tab || !tab.sessionId) {
+-    appendMessageEl('error', 'No active terminal session.');
++    appendMessageEl('error', 'Ingen aktiv terminalsession.');
+     return;
+   }
+   const settings = window.__lennartSettings || {};
+   if (settings.confirmDestructive !== false && isDestructiveCommand(cmd)) {
+     const ok = await window.lennart.confirmCommand(cmd);
+     if (!ok) {
+-      appendMessageEl('error', 'Command cancelled.');
++      appendMessageEl('error', 'Kommando annulleret.');
+       return;
+     }
+   }
+@@ -623,6 +623,14 @@ function markdownToHtml(md) {
+     }
+     if (inCode) { codeBuf.push(raw); continue; }
+ 
++    // Markdown headings ("### /help …") used to render as literal hashes.
++    const heading = raw.match(/^\s{0,3}#{1,6}\s+(.*)$/);
++    if (heading) {
++      closeList();
++      out.push(`<p class="md-head">${inlineMd(heading[1])}</p>`);
++      continue;
++    }
++
+     const li = raw.match(/^\s*[-*]\s+(.*)$/);
+     if (li) {
+       if (!listOpen) { out.push('<ul>'); listOpen = true; }
+diff --git a/src/renderer/js/app.js b/src/renderer/js/app.js
+index 71110a9..ba56db7 100644
+--- a/src/renderer/js/app.js
++++ b/src/renderer/js/app.js
+@@ -4,7 +4,7 @@ async function bootApp() {
+   window.__lennartSettings = await window.lennart.getSettings();
+   applyFontScale();
+   document.getElementById('agent-mode-state').textContent =
+-    window.__lennartSettings.agentMode !== false ? 'On' : 'Off';
++    window.__lennartSettings.agentMode !== false ? 'Til' : 'Fra';
+   applyTheme();
+   try {
+     window.__lennartElevation = await window.lennart.elevation();
+@@ -12,6 +12,11 @@ async function bootApp() {
+     window.__lennartElevation = { admin: true };
+   }
+   window.lennart.log('step 2: settings loaded');
++  try {
++    // Load the provider labels once at boot so the AI header shows a friendly
++    // name even if Settings has never been opened.
++    window.__providerCatalog = await window.lennart.providersCatalog();
++  } catch { /* header falls back to the provider id */ }
+ 
+   // Native menu accelerators (Ctrl+, / Ctrl+J / Ctrl+T / Ctrl+W) — fire
+   // regardless of focus, even when xterm has the caret
+@@ -120,7 +125,7 @@ async function toggleAgentMode() {
+   const next = !(window.__lennartSettings.agentMode !== false);
+   window.__lennartSettings.agentMode = next;
+   await window.lennart.setSettings({ agentMode: next });
+-  document.getElementById('agent-mode-state').textContent = next ? 'On' : 'Off';
++  document.getElementById('agent-mode-state').textContent = next ? 'Til' : 'Fra';
+ }
+ 
+ function applyFontScale() {
+@@ -246,7 +251,7 @@ async function runMenuAction(action) {
+     case 'ssh-setup': {
+       const { command } = await window.lennart.hostsSshSetupCommand();
+       await navigator.clipboard.writeText(command);
+-      if (typeof appendStatus === 'function') appendStatus(`SSH setup-kommando kopieret`);
++      if (typeof appendStatus === 'function') appendStatus(`SSH-opsætningskommando kopieret`);
+       window.alert(`Kør dette én gang på mål-PC'en (som admin) for at slå SSH til:\n\n${command}`);
+       break;
+     }
+@@ -303,8 +308,8 @@ async function runMenuAction(action) {
+       }, 350);
+       break;
+     case 'models-refresh':
+-      await refreshModelList();
+       if (typeof renderModelPanel === 'function') await renderModelPanel();
++      if (document.getElementById('set-provider')?.value) await refreshModelList();
+       break;
+     case 'github-actions':
+       window.lennart.openExternal('https://github.com/h4xtor/Lennarts-Terminal/actions');
+@@ -431,7 +436,7 @@ async function refreshAiStatus() {
+     };
+     const res = await window.lennart.checkConnection(cfg);
+     dot.className = `status-dot ${res.ok ? 'ok' : 'err'}`;
+-    const model = s.ai.model || 'no model';
++    const model = s.ai.model || 'ingen model';
+     // Online/Offline reflects reality: for Ollama & co. the endpoint is
+     // actually pinged, so “Online” means the engine is really running.
+     text.textContent = res.ok ? `AI: Online · ${s.ai.provider} · ${model}` : 'AI: Offline';
+@@ -499,7 +504,7 @@ function wireSettingsEvents() {
+     window.lennart.revealSettingsFile();
+   });
+   document.getElementById('btn-reset-settings').addEventListener('click', async () => {
+-    if (!window.confirm('Reset all settings to defaults?')) return;
++    if (!window.confirm('Nulstil alle indstillinger til standard?')) return;
+     await window.lennart.resetSettings();
+     window.__lennartSettings = await window.lennart.getSettings();
+     applyFontScale();
+@@ -511,7 +516,7 @@ function wireSettingsEvents() {
+ 
+ async function refreshAgyModels() {
+   const sel = document.getElementById('set-agy-model');
+-  sel.innerHTML = '<option value="">loading…</option>';
++  sel.innerHTML = '<option value="">henter…</option>';
+   const res = await window.lennart.agyModels();
+   sel.innerHTML = '<option value="">— standard —</option>';
+   if (res.ok) {
+@@ -536,7 +541,7 @@ async function saveSettings() {
+   applyFontScale();
+   applyTheme();
+   if (window.__updateAiHeaderModel) window.__updateAiHeaderModel();
+-  document.getElementById('settings-save-note').textContent = `Saved ${new Date().toLocaleTimeString()}`;
++  document.getElementById('settings-save-note').textContent = `Gemt ${new Date().toLocaleTimeString()}`;
+   await refreshAiStatus();
+ }
+ 
+@@ -563,5 +568,5 @@ window.addEventListener('keydown', (e) => {
+ bootApp().catch((err) => {
+   window.lennart?.log(`bootApp failed: ${err.stack || err}`);
+   document.body.innerHTML =
+-    `<pre style="color:#f87171;padding:20px;white-space:pre-wrap">Lennart Terminal failed to start:\n${err.stack || err}</pre>`;
++    `<pre style="color:#f87171;padding:20px;white-space:pre-wrap">Lennart Terminal kunne ikke starte:\n${err.stack || err}</pre>`;
+ });
+diff --git a/src/renderer/js/commands.js b/src/renderer/js/commands.js
+index 663a573..7b62ef2 100644
+--- a/src/renderer/js/commands.js
++++ b/src/renderer/js/commands.js
+@@ -48,14 +48,14 @@ const COMMAND_MENUS = [
+   // -------------------------------------------------------------------------
+   {
+     id: 'setup',
+-    label: 'Setup',
++    label: 'Opsætning',
+     items: [
+-      { label: 'Åbn Settings', action: 'setup-settings' },
++      { label: 'Åbn indstillinger', action: 'setup-settings' },
+       { label: 'Hent modeller (lokal AI)', action: 'setup-models' },
+       { label: 'Farver & udseende', action: 'setup-colors' },
+       { label: 'Genopfrisk modellisten', action: 'models-refresh' },
+       { label: '/help — AI hjælper dig videre', action: 'ai-help' },
+-      { label: 'SSH setup-kommando (kopier)', action: 'ssh-setup' },
++      { label: 'SSH-opsætningskommando (kopiér)', action: 'ssh-setup' },
+       { label: 'Tilføj vært…', action: 'add-host' },
+       { label: 'Test alle værter', action: 'test-hosts' },
+       { label: 'Genstart som administrator', action: 'run-as-admin' },
+@@ -290,7 +290,7 @@ const COMMAND_MENUS = [
+       // in app.js; commands run in the active tab — on remote tabs they
+       // execute on the remote host).
+       { label: 'Forbind til IP (quick-connect)', action: 'remote-connect' },
+-      { label: 'SSH setup-kommando (kopier)', action: 'ssh-setup' },
++      { label: 'SSH-opsætningskommando (kopiér)', action: 'ssh-setup' },
+       { label: 'Tilføj vært…', action: 'add-host' },
+       { label: 'Test alle værter', action: 'test-hosts' },
+       { label: 'Åbn SSH-session med ssh', cmd: 'ssh' },
+diff --git a/src/renderer/js/history.js b/src/renderer/js/history.js
+index a18fdc7..a8bc6f3 100644
+--- a/src/renderer/js/history.js
++++ b/src/renderer/js/history.js
+@@ -19,7 +19,7 @@ async function loadHosts() {
+   for (const h of hosts) {
+     const el = document.createElement('button');
+     el.className = 'host-item';
+-    el.title = `${h.host} · ${h.method.toUpperCase()} — klik for at åbne fjern-fane`;
++    el.title = `${h.host} · ${(h.method || 'ssh').toUpperCase()} — klik for at åbne fjern-fane`;
+     el.innerHTML = `
+       <span class="dot ok"></span>
+       <span class="name">${escapeHtml(h.name || h.host)}</span>
+@@ -100,7 +100,7 @@ function initHostUI() {
+     const res = await window.lennart.remoteTest(hostFromForm());
+     el.className = res.ok ? 'ok' : 'err';
+     const out = (res.output || '').trim().split('\n').filter(Boolean).pop() || '';
+-    el.textContent = res.ok ? `OK — svar: ${out}` : `Fejlede: ${out || 'timeout'}`;
++    el.textContent = res.ok ? `OK — svar: ${out}` : `Fejlede: ${out || 'tidsudløb'}`;
+   });
+   document.getElementById('btn-show-ssh-setup').addEventListener('click', async () => {
+     const { command } = await window.lennart.hostsSshSetupCommand();
+@@ -128,6 +128,13 @@ function openRemoteTab(host) {
+ // History dialog
+ // ---------------------------------------------------------------------------
+ 
++const HISTORY_TYPE_LABELS = {
++  local: 'Lokalt',
++  remote: 'Netværk',
++  agent: 'Agent',
++  ai: 'AI',
++};
++
+ async function loadHistoryList() {
+   const listEl = document.getElementById('history-list');
+   const q = document.getElementById('history-search').value.trim();
+@@ -147,7 +154,7 @@ async function loadHistoryList() {
+     const host = r.host && r.host !== 'local' ? escapeHtml(r.host) : '';
+     el.innerHTML = `
+       <div class="row1">
+-        <span class="h-type ${escapeHtml(r.type)}">${escapeHtml(r.type)}</span>
++        <span class="h-type ${escapeHtml(r.type)}">${escapeHtml(HISTORY_TYPE_LABELS[r.type] || r.type)}</span>
+         ${host ? `<span class="h-host">${host}</span>` : ''}
+         <span class="h-time">${escapeHtml(time)}</span>
+       </div>
+diff --git a/src/renderer/js/settings.js b/src/renderer/js/settings.js
+index 6dcd2c0..7e6128a 100644
+--- a/src/renderer/js/settings.js
++++ b/src/renderer/js/settings.js
+@@ -34,7 +34,7 @@ async function loadSettingsUi() {
+   document.getElementById('set-confirm').checked = currentSettings.confirmDestructive !== false;
+   document.getElementById('set-agent-engine').value = currentSettings.agentEngine || 'builtin';
+   document.getElementById('set-agent-autoapprove').checked = currentSettings.agentAutoApprove === true;
+-  document.getElementById('agent-mode-state').textContent = currentSettings.agentMode !== false ? 'On' : 'Off';
++  document.getElementById('agent-mode-state').textContent = currentSettings.agentMode !== false ? 'Til' : 'Fra';
+ 
+   // Model settings (ctx / threads / max tokens / top-p / auto-run) + colours
+   const lai = currentSettings.localAI || {};
+@@ -51,7 +51,7 @@ async function loadSettingsUi() {
+ 
+   const paths = await window.lennart.getPaths();
+   document.getElementById('settings-paths').textContent =
+-    `Settings: ${paths.settingsFile}\nVersion: v${paths.version} · ${paths.platform}`;
++    `Indstillinger: ${paths.settingsFile}\nVersion: v${paths.version} · ${paths.platform}`;
+ }
+ 
+ function fillProviderSelect() {
+@@ -70,7 +70,7 @@ function fillProviderSelect() {
+     }
+     sel.appendChild(og);
+   }
+-  sel.value = currentSettings.ai.provider || 'ollama';
++  sel.value = currentSettings.ai.provider || 'lennart-local';
+ }
+ 
+ async function applyProviderSelection() {
+@@ -100,7 +100,7 @@ async function applyProviderSelection() {
+       ? '<span class="ok">&#10004; Kører — offline PowerShell-assistent klar</span>'
+       : (st.binary && st.model
+         ? '<span class="ok">&#10004; Downloadet — startes automatisk</span>'
+-        : '<span class="err">&#9888; Hentes ved førstehjælp (~1 GB, kræver internet én gang)</span>');
++        : '<span class="err">&#9888; Hentes ved første start (~1 GB, kræver internet én gang)</span>');
+   } else if (info.protocol === 'agy') {
+     statusEl.innerHTML = '<span class="ok">&#10004; Lokal agent-motor — v&#230;lg den under Agent</span>';
+   } else if (info.needsKey && !stored.apiKey) {
+@@ -157,7 +157,7 @@ async function refreshModelList() {
+     else sel.selectedIndex = 0;
+     if (hint) {
+       hint.textContent = res.models.length > 1
+-        ? `${res.models.length} modeller fundet lokalt — vælg en og tryk Save.`
++        ? `${res.models.length} modeller fundet lokalt — vælg en og tryk Gem.`
+         : 'Modeller på USB-stikket listes her; tryk “Hent modeller” for at se og hente flere.';
+     }
+     updateFetchModelButton();
+@@ -175,10 +175,10 @@ async function refreshModelList() {
+     apiKey: document.getElementById('set-apikey').value.trim(),
+   };
+ 
+-  sel.innerHTML = '<option value="">loading…</option>';
++  sel.innerHTML = '<option value="">henter…</option>';
+   const res = cfg.baseUrl
+     ? await window.lennart.listModels(cfg)
+-    : { ok: false, error: 'No endpoint configured' };
++    : { ok: false, error: 'Intet endpoint konfigureret' };
+ 
+   sel.innerHTML = '';
+   if (res.ok && res.models.length) {
+@@ -202,7 +202,7 @@ async function refreshModelList() {
+ async function testConnection() {
+   const el = document.getElementById('conn-result');
+   el.className = '';
+-  el.textContent = 'Testing…';
++  el.textContent = 'Tester…';
+ 
+   const pid = document.getElementById('set-provider').value;
+   if (pid === 'lennart-local') {
+@@ -247,7 +247,9 @@ function toggleModelPanel() {
+   // Always draw the local model manager directly — it must work even when
+   // the Settings dialog (and its provider select) has never been opened.
+   renderModelPanel();
+-  refreshModelList(); // keeps the <select> in sync as before
++  // Only sync the <select> once a provider is actually selected; calling it
++  // with an empty select triggered a pointless "no endpoint" request.
++  if (document.getElementById('set-provider').value) refreshModelList();
+ }
+ 
+ async function renderModelPanel() {
+@@ -332,11 +334,13 @@ async function downloadPanelModel(id, btn) {
+       window.alert(`Download fejlede: ${res.error}`);
+       return;
+     }
+-    // Sync the model <select>, pick the fresh model and redraw the panel
++    // Sync the model <select>, pick the fresh model and redraw the panel.
++    // Local models are identified by their file stem, not by the catalogue id.
+     await refreshModelList();
++    const modelId = String(entry.file || '').replace(/\.gguf$/i, '');
+     const sel = document.getElementById('set-model');
+-    if (sel && [...sel.options].some((o) => o.value === entry.id)) {
+-      sel.value = entry.id;
++    if (sel && [...sel.options].some((o) => o.value === modelId)) {
++      sel.value = modelId;
+       updateFetchModelButton();
+     }
+     await renderModelPanel();
+@@ -369,14 +373,17 @@ async function fetchSelectedLocalModel() {
+     const before = document.getElementById('set-model').value;
+     await refreshModelList();
+     const sel = document.getElementById('set-model');
+-    if ([...sel.options].some((o) => o.value === entry.id)) sel.value = entry.id;
++    const modelId = String(entry.file || '').replace(/\.gguf$/i, '');
++    if ([...sel.options].some((o) => o.value === modelId)) sel.value = modelId;
+     else sel.value = before;
+     updateFetchModelButton();
+   } finally {
+     btn.disabled = false;
+     btn.textContent = 'Hent valgt';
+   }
+-}function collectSettingsPatch() {
++}
++
++function collectSettingsPatch() {
+   const pid = currentPid();
+   // Never persist an undownloaded catalogue placeholder ("catalog:xyz")
+   const modelValue = (() => {
+@@ -435,7 +442,7 @@ function updateAiHeaderModel() {
+   const info = (window.__providerCatalog && window.__providerCatalog.providers[pid]) || {};
+   let model = (s.ai && s.ai.model) || 'ingen model';
+   if (pid === 'lennart-local') {
+-    model = (s.ai && s.ai.model) ? s.ai.model : 'hardcoded model';
++    model = (s.ai && s.ai.model) ? s.ai.model : 'indbygget model';
+   }
+   const fallbackLabel = pid === 'lennart-local' ? 'Indbygget AI (offline)' : pid;
+   const el = document.getElementById('ai-model-label');
+diff --git a/src/renderer/js/terminal.js b/src/renderer/js/terminal.js
+index c93ffb1..711ed1e 100644
+--- a/src/renderer/js/terminal.js
++++ b/src/renderer/js/terminal.js
+@@ -116,6 +116,7 @@ class TerminalTab {
+     this.fitAddon = null;
+     this.el = null;
+     this.tabEl = null;
++    this._unsubs = [];
+   }
+ 
+   async open() {
+@@ -214,7 +215,7 @@ class TerminalTab {
+     this.tabEl = document.createElement('div');
+     this.tabEl.className = 'tab';
+     this.tabEl.innerHTML = `<span class="tab-title">${escapeHtml(this.shellName || this.shell || 'Shell')}</span>
+-      <button class="tab-close" title="Close tab">&#10005;</button>`;
++      <button class="tab-close" title="Luk fane">&#10005;</button>`;
+     this.tabEl.addEventListener('click', () => activateTab(this.tabId));
+     this.tabEl.querySelector('.tab-close').addEventListener('click', (e) => {
+       e.stopPropagation();
+@@ -226,16 +227,16 @@ class TerminalTab {
+ 
+     // PTY -> xterm (+ rolling buffer for AI context)
+     this.outputBuf = '';
+-    window.lennart.onTerminalData(({ id, data }) => {
++    this._unsubs.push(window.lennart.onTerminalData(({ id, data }) => {
+       if (id !== this.sessionId) return;
+       this.outputBuf = (this.outputBuf + data).slice(-8000);
+       this.xterm?.write(data);
+-    });
+-    window.lennart.onTerminalExit(({ id, code }) => {
++    }));
++    this._unsubs.push(window.lennart.onTerminalExit(({ id, code }) => {
+       if (id !== this.sessionId || this.dead) return;
+       this.dead = true;
+-      this.xterm.writeln(`\r\n\x1b[38;5;245m[process exited with code ${code} — tab stays open]\x1b[0m`);
+-    });
++      this.xterm.writeln(`\r\n\x1b[38;5;245m[processen afsluttede med kode ${code} — fanen forbliver åben]\x1b[0m`);
++    }));
+ 
+     this.fit();
+     return this;
+@@ -274,6 +275,10 @@ class TerminalTab {
+ 
+   destroy() {
+     this.dead = true;
++    for (const off of this._unsubs) {
++      try { off(); } catch { /* already gone */ }
++    }
++    this._unsubs = [];
+     if (this.sessionId) window.lennart.destroyTerminal(this.sessionId);
+     this.xterm?.dispose();
+     this.el?.remove();
+@@ -344,13 +349,13 @@ function createRemoteTab(host) {
+     fitAddon: null,
+     el: null,
+     tabEl: null,
++    _unsubs: [],
+   };
+ 
+   const container = document.getElementById('terminal-container');
+   tab.el = document.createElement('div');
+   tab.el.className = 'term-tab';
+   tab.el.style.height = '100%';
+-  tab.el.style.display = 'none';
+   tab.el.style.display = 'flex';
+   tab.el.style.flexDirection = 'column';
+   container.appendChild(tab.el);
+@@ -383,7 +388,7 @@ function createRemoteTab(host) {
+     lineHeight: 1.15,
+     cursorBlink: true,
+     scrollback: 8000,
+-    theme: TERM_THEME,
++    theme: CURRENT_TERM_THEME,
+   });
+   tab.fitAddon = new FitAddon.FitAddon();
+   tab.xterm.loadAddon(tab.fitAddon);
+@@ -391,10 +396,10 @@ function createRemoteTab(host) {
+   tab.xterm.writeln(`\x1b[38;5;245m-- Fjernforbindelse: ${host.name || host.host} (${host.host}) via ${host.method.toUpperCase()} --\x1b[0m`);
+   tab.xterm.writeln(`\x1b[38;5;245m   Skriv kommandoer i boksen nederst og tryk Enter — de køres på værten.\x1b[0m\r\n`);
+ 
+-  window.lennart.onRemoteData(({ tabId, text }) => {
++  tab._unsubs.push(window.lennart.onRemoteData(({ tabId, text }) => {
+     if (tabId !== tab.tabId) return;
+     tab.xterm.write(text.replace(/\n/g, '\r\n'));
+-  });
++  }));
+ 
+   // run a command on the host (called by the bottom prompt box)
+   tab.runCommand = async (cmd) => {
+@@ -405,13 +410,17 @@ function createRemoteTab(host) {
+     tab.busy = true;
+     tab.xterm.writeln(`\x1b[38;5;141mPS ${host.host}> ${cmd}\x1b[0m`);
+     const res = await window.lennart.remoteRun({ hostId: host.id, command: cmd, tabId: tab.tabId });
+-    if (res && res.timedOut) tab.xterm.writeln(`\x1b[33m[timeout — kommandoen gav ikke svar i tide]\x1b[0m`);
++    if (res && res.timedOut) tab.xterm.writeln(`\x1b[33m[tidsudløb — kommandoen svarede ikke i tide]\x1b[0m`);
+     tab.xterm.write('\r\n');
+     tab.busy = false;
+   };
+   tab.fit = () => { try { tab.fitAddon.fit(); } catch { /* hidden */ } };
+   tab.destroy = () => {
+     tab.dead = true;
++    for (const off of tab._unsubs) {
++      try { off(); } catch { /* already gone */ }
++    }
++    tab._unsubs = [];
+     tab.xterm.dispose();
+     tab.el.remove();
+     tab.tabEl.remove();
+diff --git a/test/agent.test.js b/test/agent.test.js
+new file mode 100644
+index 0000000..5cac93b
+--- /dev/null
++++ b/test/agent.test.js
+@@ -0,0 +1,64 @@
++'use strict';
++
++/**
++ * Offline tests for the built-in autopilot agent:
++ * decision parsing, the hard deny-list, destructive-command detection and
++ * the "Auto-godkend agent-kommandoer" setting (it must skip the confirmation
++ * dialog only when explicitly enabled).
++ */
++
++const assert = require('assert');
++const { AgentSession, isDestructive, isHardDenied, parseDecision } = require('../src/main/agent');
++
++async function runSession(settings) {
++  let confirmations = 0;
++  let step = 0;
++  const session = new AgentSession({
++    id: 'agent_test',
++    job: 'test job',
++    aiConfig: { provider: 'mock', model: 'mock' },
++    settings,
++    deps: {
++      emit: () => {},
++      run: async () => 'ok',
++      confirm: async () => { confirmations += 1; return true; },
++      log: () => {},
++    },
++  });
++  // No provider/network: the model answers with one destructive command,
++  // then reports the job as done.
++  session.askModel = async () => (step++ === 0
++    ? { thought: 'ryd op', done: false, command: 'Remove-Item C:/temp/x -Force' }
++    : { thought: 'færdig', done: true, command: '' });
++
++  const result = await session.run();
++  return { result, confirmations };
++}
++
++async function main() {
++  assert.strictEqual(isDestructive('Remove-Item C:/temp/x -Force'), true);
++  assert.strictEqual(isDestructive('Get-Process'), false);
++  assert.strictEqual(isHardDenied('format C:'), true);
++  assert.strictEqual(isHardDenied('Get-ChildItem'), false);
++
++  const parsed = parseDecision('```json\n{"thought":"ok","done":true,"command":""}\n```');
++  assert.strictEqual(parsed.done, true);
++  assert.strictEqual(parsed.thought, 'ok');
++  console.log('PASS decision parsing + destructive/hard-deny detection');
++
++  const auto = await runSession({ confirmDestructive: true, agentAutoApprove: true });
++  assert.strictEqual(auto.confirmations, 0, 'auto-godkend must skip the confirmation dialog');
++  assert.strictEqual(auto.result.ok, true);
++
++  const manual = await runSession({ confirmDestructive: true, agentAutoApprove: false });
++  assert.strictEqual(manual.confirmations, 1, 'destructive commands still ask without auto-godkend');
++  assert.strictEqual(manual.result.ok, true);
++  console.log('PASS agent auto-approve setting');
++
++  console.log('ALL AGENT TESTS PASSED');
++}
++
++main().catch((err) => {
++  console.error('FAILED:', err);
++  process.exit(1);
++});
+diff --git a/test/ai.test.js b/test/ai.test.js
+index 70366b2..1891f46 100644
+--- a/test/ai.test.js
++++ b/test/ai.test.js
+@@ -82,6 +82,16 @@ const server = http.createServer((req, res) => {
+     });
+     return;
+   }
++  if (req.method === 'POST' && req.url === '/flush/chat/completions') {
++    req.on('data', () => {});
++    req.on('end', () => {
++      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
++      // No trailing blank line: the final token must still reach the client.
++      res.write('data: {"choices":[{"delta":{"content":"tail"}}]}');
++      res.end();
++    });
++    return;
++  }
+   if (req.method === 'POST' && req.url === '/v1/chat/completions') {
+     let body = '';
+     req.on('data', (c) => { body += c; });
+@@ -129,6 +139,19 @@ async function main() {
+   assert.strictEqual(ocText, 'hello world', `openai-compatible streaming failed: ${ocText}`);
+   console.log('PASS openai-compatible listModels + streaming chat');
+ 
++  // --- SSE stream without the final blank line ---
++  const flushCfg = {
++    provider: 'openai-compatible',
++    model: 'mock-coder',
++    baseUrl: `http://127.0.0.1:${PORT}/flush`,
++  };
++  let flushText = '';
++  await chat(flushCfg, [{ role: 'user', content: 'hi' }], {
++    onToken: (t) => { flushText += t; },
++  });
++  assert.strictEqual(flushText, 'tail', `SSE tail token lost: ${flushText}`);
++  console.log('PASS openai-compatible SSE without trailing blank line');
++
+   if (server.closeAllConnections) server.closeAllConnections();
+   // --- Anthropic protocol ---
+   const antCfg = { provider: 'anthropic', model: 'claude-sonnet-4-6', baseUrl: `http://127.0.0.1:${PORT}/anthropic/v1`, apiKey: 'sk-ant-test' };
+diff --git a/test/localai.test.js b/test/localai.test.js
+index 6a97a56..21f3b15 100644
+--- a/test/localai.test.js
++++ b/test/localai.test.js
+@@ -37,7 +37,7 @@ async function testBinName() {
+ async function testPathsAndStatus(tmpRoot) {
+   const ai = new LocalAI({ root: path.join(tmpRoot, 'localai'), log: () => {}, emit: () => {} });
+   const p = ai.paths();
+-  assert.ok(p.bin.endsWith(binName('win32')));
++  assert.ok(p.bin.endsWith(binName()));
+   assert.ok(p.model.endsWith(LOCAL_MODEL.file));
+   const st = ai.status();
+   assert.strictEqual(st.running, false);
+-- 
+2.56.0.windows.2
+
+
+From e8b6f11b9bfb3eb6363607263f505ab99a2fe7c9 Mon Sep 17 00:00:00 2001
+From: Codebuff <noreply@codebuff.com>
+Date: Wed, 28 Oct 2026 15:15:02 +0000
+Subject: [PATCH 02/12] =?UTF-8?q?Tilf=C3=B8j=20Windows-smoketest=20til=20r?=
+ =?UTF-8?q?ettelserne?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Tilføjer en selvstændig smoketest, der starter appen i en midlertidig profil og tester de rettede fejl uden at hente den indbyggede AI-model eller røre brugerens data.
+---
+ README.md             |  12 +
+ package.json          |   1 +
+ scripts/smoke-test.js | 681 ++++++++++++++++++++++++++++++++++++++++++
+ test-lennart.cmd      |  62 ++++
+ 4 files changed, 756 insertions(+)
+ create mode 100644 scripts/smoke-test.js
+ create mode 100644 test-lennart.cmd
+
+diff --git a/README.md b/README.md
+index 1cc3721..eed9032 100644
+--- a/README.md
++++ b/README.md
+@@ -133,6 +133,18 @@ npm run check   :: fast node --check syntax gate over all JS
+ npm test        :: offline AI-layer tests (no provider needed)
+ ```
+ 
++### Windows smoke test (one command)
++
++Double-click **`test-lennart.cmd`** to run the syntax check, the automated tests and a real UI smoke test. It starts the app in a temporary profile, so your settings, history and the embedded AI model are untouched. A small local stub answers the AI endpoint, which means **no internet and no ~1 GB model download** are needed.
++
++The UI test checks the Danish labels, that a command typed directly in the terminal lands in the history, that the bottom prompt box still records commands, that the agent settings are remembered, and that a new tab inherits the selected theme. It needs Node.js 22+ and `npm ci`.
++
++Run only the UI smoke test (without the two other gates):
++
++```cmd
++npm run smoke
++```
++
+ Releases are automated: push a tag (`git tag v0.2.0 && git push origin v0.2.0`) and GitHub Actions builds the portable zip and publishes the release. The workflow runs are public: [github.com/h4xtor/Lennarts-Terminal/actions](https://github.com/h4xtor/Lennarts-Terminal/actions).
+ 
+ ## Project layout
+diff --git a/package.json b/package.json
+index 71a8871..7519333 100644
+--- a/package.json
++++ b/package.json
+@@ -12,6 +12,7 @@
+     "dev": "electron . --enable-logging",
+     "test": "node test/run-all.js",
+     "check": "node scripts/check.js",
++    "smoke": "node scripts/smoke-test.js",
+     "pack": "electron-builder --dir",
+     "dist": "electron-builder"
+   },
+diff --git a/scripts/smoke-test.js b/scripts/smoke-test.js
+new file mode 100644
+index 0000000..abef132
+--- /dev/null
++++ b/scripts/smoke-test.js
+@@ -0,0 +1,681 @@
++'use strict';
++
++/**
++ * Windows smoke test for Lennart Terminal.
++ *
++ * Starts the real Electron app with a throw-away profile, so it never touches
++ * the user's settings, history or the embedded AI model. A tiny local stub
++ * answers the AI endpoint, which keeps the test offline and prevents a ~1 GB
++ * model download. Then it verifies, through Chrome DevTools Protocol:
++ *
++ *   1. the app starts and the first terminal is ready
++ *   2. the old provider id "qwen" is migrated to "dashscope"
++ *   3. the visible UI is Danish (menubar, settings, history, prompt, ...)
++ *   4. a command typed through xterm (text + Enter as separate chunks) is
++ *      written to the permanent history — the main fix in this branch
++ *   5. a command from the bottom prompt box is still recorded
++ *   6. agent auto-approve + engine are saved and remembered
++ *   7. the light theme is applied and a NEW tab inherits it
++ *   8. no console errors / uncaught exceptions occurred
++ *
++ * Usage (Windows, Node 22+):
++ *   node scripts/smoke-test.js
++ *   node scripts/smoke-test.js --keep    keep the temp profile for inspection
++ *   node scripts/smoke-test.js --help
++ *
++ * The easiest entry point is test-lennart.cmd in the project root.
++ */
++
++const fs = require('fs');
++const os = require('os');
++const path = require('path');
++const http = require('http');
++const net = require('net');
++const { spawn, spawnSync } = require('child_process');
++
++const ROOT = path.join(__dirname, '..');
++const KEEP = process.argv.includes('--keep');
++const HELP = process.argv.includes('--help') || process.argv.includes('-h');
++
++const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
++let passed = 0;
++
++function pass(message) {
++  passed += 1;
++  console.log(`PASS  ${message}`);
++}
++
++function assert(condition, message) {
++  if (!condition) throw new Error(message);
++  pass(message);
++}
++
++/** Pick a free localhost TCP port (used for CDP and the AI stub). */
++function freePort() {
++  return new Promise((resolve, reject) => {
++    const server = net.createServer();
++    server.unref();
++    server.once('error', reject);
++    server.listen(0, '127.0.0.1', () => {
++      const port = server.address().port;
++      server.close(() => resolve(port));
++    });
++  });
++}
++
++/**
++ * Minimal local stand-in for Ollama / an OpenAI-compatible endpoint. It is
++ * only here so Settings and the status poll succeed instantly and offline.
++ */
++async function startStubAi() {
++  const port = await freePort();
++  const server = http.createServer((req, res) => {
++    const url = String(req.url || '/');
++    req.resume(); // drain request bodies (connection checks may POST)
++    res.setHeader('Content-Type', 'application/json; charset=utf-8');
++
++    if (url.includes('/api/tags')) {
++      res.end(JSON.stringify({
++        models: [{ name: 'smoke:latest', size: 123456, modified_at: new Date().toISOString() }],
++      }));
++      return;
++    }
++    if (url.includes('/models')) {
++      res.end(JSON.stringify({
++        data: [{ id: 'smoke', object: 'model' }],
++        models: [{ name: 'smoke:latest', size: 123456 }],
++      }));
++      return;
++    }
++    if (url.includes('/api/chat')) {
++      res.end(JSON.stringify({
++        message: { role: 'assistant', content: 'OK' },
++        done: true,
++      }));
++      return;
++    }
++    if (url.includes('/chat/completions')) {
++      res.end(JSON.stringify({
++        choices: [{ message: { role: 'assistant', content: 'OK' } }],
++      }));
++      return;
++    }
++    if (url.includes('/api/version')) {
++      res.end(JSON.stringify({ version: '0.0.0' }));
++      return;
++    }
++    res.end(JSON.stringify({ ok: true }));
++  });
++
++  await new Promise((resolve, reject) => {
++    server.once('error', reject);
++    server.listen(port, '127.0.0.1', resolve);
++  });
++  return { server, port };
++}
++
++/** A throw-away data dir + APPDATA, so the real user profile is untouched. */
++function createProfile() {
++  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'lennart-smoke-'));
++  const profile = {
++    base,
++    data: path.join(base, 'data'),
++    appdata: path.join(base, 'appdata'),
++    temp: path.join(base, 'tmp'),
++  };
++  for (const dir of Object.values(profile)) fs.mkdirSync(dir, { recursive: true });
++  fs.mkdirSync(path.join(profile.appdata, 'Lennart Terminal'), { recursive: true });
++  return profile;
++}
++
++/**
++ * Write the test settings BEFORE Electron starts. The provider is deliberately
++ * "qwen" (a removed id) so the migration to "dashscope" is exercised.
++ */
++function writeSettings(dataDir, stubPort) {
++  const baseUrl = `http://127.0.0.1:${stubPort}`;
++  const settings = {
++    version: 3.1,
++    shell: 'powershell',
++    fontScale: 1,
++    ai: {
++      provider: 'qwen',
++      model: 'smoke',
++      baseUrl,
++      temperature: 0.4,
++      maxTokens: 0,
++      topP: 1,
++    },
++    providers: {
++      qwen: { apiKey: 'smoke', model: 'smoke', baseUrl },
++    },
++    localAI: { ctx: 4096, threads: 0 },
++    aiAutoRun: true,
++    theme: { preset: 'standard', accent: '#7c6cff' },
++    agentEngine: 'builtin',
++    agentAutoApprove: false,
++    agyModel: '',
++    hosts: [],
++    chatMode: 'chat',
++    agentMode: true,
++    confirmDestructive: true,
++    windowBounds: null,
++  };
++  fs.mkdirSync(dataDir, { recursive: true });
++  fs.writeFileSync(path.join(dataDir, 'settings.json'), JSON.stringify(settings, null, 2));
++}
++
++function electronExe() {
++  let resolved = '';
++  try { resolved = require('electron'); } catch { /* fall through */ }
++  if (typeof resolved === 'string' && fs.existsSync(resolved)) return resolved;
++  const fallback = path.join(ROOT, 'node_modules', 'electron', 'dist', 'electron.exe');
++  return fs.existsSync(fallback) ? fallback : '';
++}
++
++function launchApp(profile, port) {
++  const exe = electronExe();
++  if (!exe) throw new Error('Electron blev ikke fundet — kør "npm ci" først.');
++
++  const child = spawn(exe, ['.', `--remote-debugging-port=${port}`], {
++    cwd: ROOT,
++    env: {
++      ...process.env,
++      // Separate profile + data dir. The temp APPDATA also means the
++      // legacy-local-AI migration can only look at an empty folder.
++      LENNART_DATA_DIR: profile.data,
++      APPDATA: profile.appdata,
++      TEMP: profile.temp,
++      TMP: profile.temp,
++      LENNART_NO_ELEVATE: '1',
++      ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
++    },
++    stdio: ['ignore', 'pipe', 'pipe'],
++    windowsHide: false,
++  });
++
++  let output = '';
++  const collect = (chunk) => {
++    output = (output + chunk.toString()).slice(-12000);
++  };
++  child.stdout.on('data', collect);
++  child.stderr.on('data', collect);
++
++  return { child, output: () => output };
++}
++
++async function waitForPage(port, timeoutMs = 60000) {
++  const deadline = Date.now() + timeoutMs;
++  let lastError = '';
++  while (Date.now() < deadline) {
++    try {
++      const res = await fetch(`http://127.0.0.1:${port}/json/list`);
++      if (res.ok) {
++        const list = await res.json();
++        const page = list.find((t) => t.type === 'page' && /index\.html/i.test(t.url)) ||
++          list.find((t) => t.type === 'page');
++        if (page && page.webSocketDebuggerUrl) return page;
++      }
++    } catch (err) {
++      lastError = err.message;
++    }
++    await sleep(300);
++  }
++  throw new Error(
++    `Electron/CDP svarede ikke på port ${port}${lastError ? ` (${lastError})` : ''}. ` +
++    'Luk Lennart Terminal, hvis den allerede kører, og prøv igen.',
++  );
++}
++
++/** Tiny CDP client — Node 22 has a global WebSocket. */
++function connectCdp(page) {
++  return new Promise((resolve, reject) => {
++    const ws = new WebSocket(page.webSocketDebuggerUrl);
++    let seq = 0;
++    const pending = new Map();
++    const problems = [];
++
++    const send = (method, params = {}) => new Promise((res, rej) => {
++      const id = ++seq;
++      pending.set(id, { res, rej });
++      ws.send(JSON.stringify({ id, method, params }));
++    });
++
++    const evaluate = async (expression, awaitPromise = false) => {
++      const result = await send('Runtime.evaluate', {
++        expression,
++        awaitPromise,
++        returnByValue: true,
++      });
++      if (result.exceptionDetails) {
++        const desc = result.exceptionDetails.exception && result.exceptionDetails.exception.description;
++        throw new Error(
++          `Renderer-fejl: ${result.exceptionDetails.text}${desc ? ` ${desc}` : ''}`,
++        );
++      }
++      return result.result.value;
++    };
++
++    ws.addEventListener('message', (event) => {
++      const msg = JSON.parse(event.data);
++      if (msg.id && pending.has(msg.id)) {
++        const entry = pending.get(msg.id);
++        pending.delete(msg.id);
++        if (msg.error) entry.rej(new Error(msg.error.message));
++        else entry.res(msg.result);
++      } else if (msg.method === 'Runtime.consoleAPICalled' && msg.params.type === 'error') {
++        const text = msg.params.args.map((a) => a.value || a.description || '').join(' ');
++        problems.push(`console.error: ${text}`);
++      } else if (msg.method === 'Runtime.exceptionThrown') {
++        const details = msg.params.exceptionDetails;
++        problems.push(
++          `exception: ${details.text} ${details.exception ? details.exception.description || '' : ''}`,
++        );
++      }
++    });
++
++    ws.addEventListener('open', () => resolve({
++      ws,
++      send,
++      evaluate,
++      problems,
++      close: () => ws.close(),
++    }), { once: true });
++    ws.addEventListener('error', () => reject(new Error('Kunne ikke forbinde til Electron via CDP')), { once: true });
++  });
++}
++
++async function waitForExpr(cdp, expression, timeoutMs, label) {
++  const deadline = Date.now() + timeoutMs;
++  let lastError = '';
++  while (Date.now() < deadline) {
++    try {
++      if (await cdp.evaluate(expression)) return;
++    } catch (err) {
++      lastError = err.message;
++    }
++    await sleep(250);
++  }
++  throw new Error(`Timeout: ${label}${lastError ? ` (${lastError})` : ''}`);
++}
++
++async function historyRows(cdp, token) {
++  return cdp.evaluate(
++    `window.lennart.historyQuery({ limit: 100, query: ${JSON.stringify(token)} })`,
++    true,
++  );
++}
++
++async function waitForHistory(cdp, token, timeoutMs = 10000) {
++  const deadline = Date.now() + timeoutMs;
++  while (Date.now() < deadline) {
++    const rows = await historyRows(cdp, token).catch(() => []);
++    if (Array.isArray(rows) && rows.some((r) => String(r.command || '').includes(token))) {
++      return rows;
++    }
++    await sleep(250);
++  }
++  return [];
++}
++
++/**
++ * Send the command text through xterm itself, then press Enter as a separate
++ * key event. That is exactly how a real user triggers the history parser.
++ */
++async function typeThroughXterm(cdp, command) {
++  const started = await cdp.evaluate(`(() => {
++    const tab = activeTab();
++    if (!tab || !tab.xterm) return false;
++    tab.xterm.focus();
++    const textarea = document.querySelector('.xterm-helper-textarea');
++    if (textarea) textarea.focus();
++    tab.xterm.paste(${JSON.stringify(command)});
++    return true;
++  })()`);
++  if (!started) return false;
++
++  await sleep(200);
++  const key = {
++    key: 'Enter',
++    code: 'Enter',
++    windowsVirtualKeyCode: 13,
++    nativeVirtualKeyCode: 13,
++  };
++  await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...key });
++  await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...key });
++  return true;
++}
++
++/**
++ * Fallback that mimics xterm exactly: the command and the Enter are two
++ * separate writes, which was the situation the old history code missed.
++ */
++async function sendInputChunks(cdp, command) {
++  const sessionId = await cdp.evaluate(`(activeTab() && activeTab().sessionId) || ''`);
++  if (!sessionId) throw new Error('Ingen aktiv terminal at skrive i');
++  await cdp.evaluate(
++    `window.lennart.writeTerminal(${JSON.stringify(sessionId)}, ${JSON.stringify(command)})`,
++  );
++  await sleep(150);
++  await cdp.evaluate(
++    `window.lennart.writeTerminal(${JSON.stringify(sessionId)}, ${JSON.stringify('\r')})`,
++  );
++}
++
++async function cancelCurrentLine(cdp) {
++  const sessionId = await cdp.evaluate(`(activeTab() && activeTab().sessionId) || ''`).catch(() => '');
++  if (!sessionId) return;
++  await cdp.evaluate(
++    `window.lennart.writeTerminal(${JSON.stringify(sessionId)}, ${JSON.stringify('\x03')})`,
++  ).catch(() => {});
++  await sleep(250);
++}
++
++function killTree(pid) {
++  if (!pid) return;
++  if (process.platform === 'win32') {
++    spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
++      stdio: 'ignore',
++      windowsHide: true,
++    });
++  } else {
++    try { process.kill(pid); } catch { /* already gone */ }
++  }
++}
++
++async function main() {
++  console.log('Lennart Terminal — Windows-smoketest');
++  console.log(`Node ${process.version}`);
++
++  const stub = await startStubAi();
++  const profile = createProfile();
++  writeSettings(profile.data, stub.port);
++  console.log(`Midlertidig testprofil: ${profile.base}`);
++
++  const cdpPort = await freePort();
++  const app = launchApp(profile, cdpPort);
++  let cdp = null;
++  let ok = false;
++
++  try {
++    const page = await waitForPage(cdpPort);
++    cdp = await connectCdp(page);
++    await cdp.send('Runtime.enable');
++
++    await waitForExpr(
++      cdp,
++      "document.readyState === 'complete' && !!window.lennart && !!document.getElementById('brand-row')",
++      60000,
++      'rendereren',
++    );
++    await waitForExpr(
++      cdp,
++      "typeof termTabs !== 'undefined' && termTabs.size >= 1 && !!activeTab() && !!activeTab().sessionId",
++      45000,
++      'første terminal',
++    );
++    pass('Appen starter, og første terminal er klar');
++
++    // ---- 1. provider migration (qwen -> dashscope) ----
++    const providerState = JSON.parse(await cdp.evaluate(`JSON.stringify({
++      provider: window.__lennartSettings && window.__lennartSettings.ai && window.__lennartSettings.ai.provider,
++      hasDashscope: !!(window.__lennartSettings && window.__lennartSettings.providers && window.__lennartSettings.providers.dashscope),
++      hasQwen: !!(window.__lennartSettings && window.__lennartSettings.providers && window.__lennartSettings.providers.qwen)
++    })`));
++    assert(
++      providerState.provider === 'dashscope',
++      `qwen migreres til dashscope (${providerState.provider})`,
++    );
++    assert(
++      providerState.hasDashscope && !providerState.hasQwen,
++      'provider-nøglen flyttes til det nye id',
++    );
++
++    // ---- 2. visible Danish UI ----
++    const ui = JSON.parse(await cdp.evaluate(`JSON.stringify({
++      lang: document.documentElement.lang,
++      menubarFirst: ((document.querySelector('#menubar .menu-btn') || {}).textContent || '').trim(),
++      settingsTitle: ((document.querySelector('#settings-dialog h2') || {}).textContent || '').trim(),
++      historyTitle: ((document.querySelector('#history-dialog h2') || {}).textContent || '').trim(),
++      settingsTitleAttr: (document.getElementById('btn-settings') || {}).title || '',
++      historyTitleAttr: (document.getElementById('btn-history') || {}).title || '',
++      cmdLabel: ((document.querySelector('.shell-btn[data-shell="cmd"]') || {}).textContent || '').trim(),
++      newTabLabel: ((document.getElementById('btn-new-tab') || {}).textContent || '').trim(),
++      promptHint: ((document.getElementById('prompt-hint') || {}).textContent || '').trim(),
++      copyLabel: ((document.getElementById('btn-copy-term') || {}).textContent || '').trim(),
++      typeLocal: ((document.querySelector('#history-type option[value="local"]') || {}).textContent || '').trim(),
++      typeRemote: ((document.querySelector('#history-type option[value="remote"]') || {}).textContent || '').trim(),
++      typeAgent: ((document.querySelector('#history-type option[value="agent"]') || {}).textContent || '').trim(),
++      typeAi: ((document.querySelector('#history-type option[value="ai"]') || {}).textContent || '').trim(),
++      version: ((document.getElementById('version-tag') || {}).textContent || '').trim()
++    })`));
++
++    assert(ui.lang === 'da', `siden er markeret som dansk (lang="${ui.lang}")`);
++    assert(ui.menubarFirst === 'Opsætning', `første menupunkt er "Opsætning" (${ui.menubarFirst})`);
++    assert(ui.settingsTitle === 'Indstillinger', `indstillingsvinduet hedder "Indstillinger"`);
++    assert(ui.historyTitle.includes('Historik'), `historikvinduet er på dansk (${ui.historyTitle})`);
++    assert(ui.settingsTitleAttr === 'Indstillinger (Ctrl+,)', `tandhjulet har dansk værktøjstip`);
++    assert(ui.historyTitleAttr === 'Historik (Ctrl+H)', `historik-knappen har dansk værktøjstip`);
++    assert(ui.cmdLabel === 'Kommandoprompt', `cmd-knappen hedder "Kommandoprompt" (${ui.cmdLabel})`);
++    assert(ui.newTabLabel.includes('Ny fane'), `ny-fane-knappen er oversat (${ui.newTabLabel})`);
++    assert(
++      ui.promptHint.includes('Spørg AI (Ctrl+Enter)') && ui.promptHint.includes('eller skriv en kommando'),
++      'prompt-hinten er dansk',
++    );
++    assert(ui.copyLabel.includes('Kopiér'), `kopiér-knappen er oversat (${ui.copyLabel})`);
++    assert(
++      ui.typeLocal === 'Lokalt' && ui.typeRemote === 'Netværk' &&
++      ui.typeAgent === 'Agent' && ui.typeAi === 'AI',
++      'historikkens typer er Lokalt / Netværk / Agent / AI',
++    );
++    assert(ui.version === 'v0.2.0', `versionsmærket er korrekt (${ui.version})`);
++
++    // ---- 3. typed history (the main fix) ----
++    const typedToken = `smoke-${Date.now().toString(36)}`;
++    let recordedToken = typedToken;
++    let mode = 'xterm';
++    let typedOk = false;
++
++    try {
++      typedOk = await typeThroughXterm(cdp, `echo ${typedToken}`);
++      if (!typedOk) console.log('INFO  xterm var ikke klar; bruger terminalbroen');
++    } catch (err) {
++      console.log(`INFO  xterm-indsendelse fejlede (${err.message}); bruger terminalbroen`);
++    }
++
++    let rows = typedOk ? await waitForHistory(cdp, recordedToken, 8000) : [];
++    if (!typedOk || !rows.length) {
++      if (typedOk) {
++        console.log('INFO  xterm gav ingen historik; prøver terminalbroen med to separate chunks');
++        await cancelCurrentLine(cdp);
++      }
++      mode = 'bro';
++      recordedToken = `${typedToken}b`;
++      await sendInputChunks(cdp, `echo ${recordedToken}`);
++      rows = await waitForHistory(cdp, recordedToken, 10000);
++    }
++
++    assert(rows.length > 0, `tastet kommando gemmes i historikken (${mode})`);
++    const typedRecord = rows.find((r) => String(r.command || '').includes(recordedToken));
++    assert(
++      typedRecord && typedRecord.type === 'local',
++      `historikposten har typen "Lokalt" (${typedRecord && typedRecord.type})`,
++    );
++
++    // ---- 4. the bottom prompt box still records commands ----
++    const promptToken = `prompt-${Date.now().toString(36)}`;
++    await cdp.evaluate(`(() => {
++      const input = document.getElementById('prompt-input');
++      input.value = ${JSON.stringify(`echo ${promptToken}`)};
++      input.dispatchEvent(new Event('input', { bubbles: true }));
++      input.dispatchEvent(new KeyboardEvent('keydown', {
++        key: 'Enter',
++        bubbles: true,
++        cancelable: true
++      }));
++      return true;
++    })()`);
++    const promptRows = await waitForHistory(cdp, promptToken, 10000);
++    assert(promptRows.length > 0, 'kommando fra prompt-boksen gemmes også');
++
++    // ---- 5. agent settings persist ----
++    await cdp.evaluate('openSettings(); true');
++    await waitForExpr(
++      cdp,
++      "document.getElementById('settings-paths').textContent.includes('Indstillinger:')",
++      15000,
++      'indstillingerne indlæst',
++    );
++    await cdp.evaluate(`(() => {
++      document.getElementById('set-agent-autoapprove').checked = true;
++      const engine = document.getElementById('set-agent-engine');
++      engine.value = 'antigravity';
++      engine.dispatchEvent(new Event('change', { bubbles: true }));
++      document.getElementById('btn-save-settings').click();
++      return true;
++    })()`);
++    await waitForExpr(
++      cdp,
++      "window.__lennartSettings && window.__lennartSettings.agentAutoApprove === true && window.__lennartSettings.agentEngine === 'antigravity'",
++      10000,
++      'agent-indstillinger gemt',
++    );
++    pass('Agent-indstillinger gemmes (auto-godkend + agy-motor)');
++
++    await cdp.evaluate('closeSettings(); true');
++    await sleep(300);
++    // Clear the fields first, so a successful check really means the values
++    // were loaded from disk again — not just left over in the dialog.
++    await cdp.evaluate(`(() => {
++      document.getElementById('settings-paths').textContent = '';
++      document.getElementById('set-agent-autoapprove').checked = false;
++      document.getElementById('set-agent-engine').value = 'builtin';
++      openSettings();
++      return true;
++    })()`);
++    await waitForExpr(
++      cdp,
++      "document.getElementById('settings-paths').textContent.includes('Indstillinger:') && document.getElementById('set-agent-autoapprove').checked === true && document.getElementById('set-agent-engine').value === 'antigravity'",
++      15000,
++      'agent-indstillinger husket',
++    );
++    pass('Agent-indstillinger huskes efter genåbning');
++
++    // Put the agent section back to defaults in the throw-away profile.
++    await cdp.evaluate(`(() => {
++      document.getElementById('set-agent-autoapprove').checked = false;
++      const engine = document.getElementById('set-agent-engine');
++      engine.value = 'builtin';
++      engine.dispatchEvent(new Event('change', { bubbles: true }));
++      document.getElementById('btn-save-settings').click();
++      return true;
++    })()`);
++    await waitForExpr(
++      cdp,
++      "window.__lennartSettings && window.__lennartSettings.agentEngine === 'builtin' && window.__lennartSettings.agentAutoApprove === false",
++      10000,
++      'agent-indstillinger nulstillet',
++    );
++
++    // ---- 6. light theme + new tab inherits it ----
++    // The settings dialog is still open from the agent test.
++    await cdp.evaluate(`(() => {
++      const theme = document.getElementById('set-theme');
++      theme.value = 'lys';
++      theme.dispatchEvent(new Event('change', { bubbles: true }));
++      document.getElementById('btn-save-settings').click();
++      return true;
++    })()`);
++    await waitForExpr(cdp, "document.body.classList.contains('theme-lys')", 10000, 'lyst tema');
++    pass('Lyst tema anvendes');
++
++    const tabsBefore = await cdp.evaluate('termTabs.size');
++    await cdp.evaluate("newTab('cmd'); true");
++    await waitForExpr(
++      cdp,
++      `termTabs.size === ${tabsBefore + 1} && !!activeTab() && !!activeTab().xterm`,
++      20000,
++      'ny fane',
++    );
++    const background = await cdp.evaluate(
++      "activeTab().xterm.options && activeTab().xterm.options.theme && activeTab().xterm.options.theme.background",
++    );
++    assert(background === '#f4f5f7', `ny fane arver det lyse tema (${background})`);
++
++    await cdp.evaluate('closeTab(activeTabId); true');
++    await waitForExpr(cdp, `termTabs.size === ${tabsBefore}`, 5000, 'fane lukket');
++
++    await cdp.evaluate(`(() => {
++      const theme = document.getElementById('set-theme');
++      theme.value = 'standard';
++      theme.dispatchEvent(new Event('change', { bubbles: true }));
++      document.getElementById('btn-save-settings').click();
++      return true;
++    })()`);
++    await waitForExpr(cdp, "!document.body.classList.contains('theme-lys')", 10000, 'standardtema');
++    await cdp.evaluate('closeSettings(); true');
++
++    // ---- 7. no renderer errors ----
++    await sleep(800);
++    assert(
++      cdp.problems.length === 0,
++      `ingen console-fejl eller uncaught exceptions${cdp.problems.length ? `: ${cdp.problems.join(' | ')}` : ''}`,
++    );
++
++    await cdp.evaluate('window.lennart.closeWindow(); true').catch(() => {});
++    await sleep(800);
++    ok = true;
++    console.log(`\nSMOKE TEST OK — ${passed} kontroller bestået.`);
++  } catch (err) {
++    console.error(`\nSMOKE TEST FEJLEDE: ${err.message}`);
++    const output = app.output().trim();
++    if (output) {
++      const tail = output.split('\n').slice(-30).join('\n');
++      console.error(`\nElectron-log (sidste linjer):\n${tail}`);
++    }
++    if (profile) {
++      console.error(`\nTestprofilen er bevaret til fejlsøgning:\n${profile.base}`);
++    }
++    process.exitCode = 1;
++  } finally {
++    if (cdp) {
++      try { cdp.close(); } catch { /* already closed */ }
++    }
++    killTree(app.child && app.child.pid);
++    try {
++      if (stub.server.closeAllConnections) stub.server.closeAllConnections();
++      stub.server.close();
++    } catch { /* already closed */ }
++    if (ok && !KEEP && profile) {
++      try { fs.rmSync(profile.base, { recursive: true, force: true }); } catch { /* best effort */ }
++    }
++  }
++}
++
++if (HELP) {
++  console.log('Lennart Terminal — Windows-smoketest\n');
++  console.log('Brug:');
++  console.log('  node scripts/smoke-test.js          kør hele smoketesten');
++  console.log('  node scripts/smoke-test.js --keep   behold testprofilen bagefter');
++  console.log('  node scripts/smoke-test.js --help   vis denne hjælp\n');
++  console.log('Testen starter appen i en midlertidig profil og rører ikke dine data.');
++  process.exit(0);
++}
++
++const nodeMajor = Number(process.versions.node.split('.')[0]);
++if (nodeMajor < 22) {
++  console.error(`Node.js 22 eller nyere kræves (du kører ${process.version}) — den globale WebSocket bruges til CDP.`);
++  process.exit(1);
++}
++
++if (process.platform !== 'win32') {
++  console.error('Denne smoketest skal køres på Windows — den starter den rigtige Electron-app.');
++  process.exit(1);
++}
++
++main().catch((err) => {
++  console.error(`SMOKE TEST FEJLEDE: ${err.message}`);
++  // Nothing has been launched yet at this point (stub/profile/Electron setup),
++  // so make sure a stray listening socket cannot keep the process alive.
++  process.exit(1);
++});
+diff --git a/test-lennart.cmd b/test-lennart.cmd
+new file mode 100644
+index 0000000..4ec713b
+--- /dev/null
++++ b/test-lennart.cmd
+@@ -0,0 +1,62 @@
++@echo off
++chcp 65001 >nul
++setlocal
++cd /d "%~dp0"
++
++where node >nul 2>nul
++if errorlevel 1 (
++  echo [FEJL] Node.js mangler. Installer Node.js 22 fra https://nodejs.org/
++  pause
++  exit /b 1
++)
++
++node -e "process.exit(Number(process.versions.node.split('.')[0]) >= 22 ? 0 : 1)"
++if errorlevel 1 (
++  echo [FEJL] Node.js 22 eller nyere kraves. Din version:
++  node -v
++  pause
++  exit /b 1
++)
++
++if not exist "node_modules\electron\dist\electron.exe" (
++  echo [FEJL] Afhaengigheder mangler. Kor forst:
++  echo    npm ci
++  pause
++  exit /b 1
++)
++
++echo.
++echo ============================================
++echo  1/3  Syntaks
++echo ============================================
++call npm run check
++if errorlevel 1 goto :fail
++
++echo.
++echo ============================================
++echo  2/3  Automatiske tests
++echo ============================================
++call npm test
++if errorlevel 1 goto :fail
++
++echo.
++echo ============================================
++echo  3/3  UI-smoketest (Windows)
++echo ============================================
++call node scripts\smoke-test.js
++if errorlevel 1 goto :fail
++
++echo.
++echo ============================================
++echo  ALT OK - rettelserne virker
++echo ============================================
++pause
++exit /b 0
++
++:fail
++echo.
++echo ============================================
++echo  TEST FEJLEDE - se output ovenfor
++echo ============================================
++pause
++exit /b 1
+-- 
+2.56.0.windows.2
+
+
+From c27bab8758e1a6959bf38f4c924278d3eda5738a Mon Sep 17 00:00:00 2001
+From: Codebuff <noreply@codebuff.com>
+Date: Wed, 28 Oct 2026 16:04:58 +0000
+Subject: [PATCH 03/12] Ret smoketestens forventning til AI-historikfilteret
+
+---
+ scripts/smoke-test.js | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/scripts/smoke-test.js b/scripts/smoke-test.js
+index abef132..5c36cd5 100644
+--- a/scripts/smoke-test.js
++++ b/scripts/smoke-test.js
+@@ -465,8 +465,8 @@ async function main() {
+     assert(ui.copyLabel.includes('Kopiér'), `kopiér-knappen er oversat (${ui.copyLabel})`);
+     assert(
+       ui.typeLocal === 'Lokalt' && ui.typeRemote === 'Netværk' &&
+-      ui.typeAgent === 'Agent' && ui.typeAi === 'AI',
+-      'historikkens typer er Lokalt / Netværk / Agent / AI',
++      ui.typeAgent === 'Agent' && ui.typeAi.startsWith('AI'),
++      `historikkens typer er Lokalt / Netværk / Agent / AI (${ui.typeAi})`,
+     );
+     assert(ui.version === 'v0.2.0', `versionsmærket er korrekt (${ui.version})`);
+ 
+-- 
+2.56.0.windows.2
+
+
+From 3d591034b7e5a465adde1a6e7079933cd5bea7a6 Mon Sep 17 00:00:00 2001
+From: Codebuff <noreply@codebuff.com>
+Date: Thu, 29 Oct 2026 00:06:19 +0100
+Subject: [PATCH 04/12] =?UTF-8?q?Ret=20temaswitch=20p=C3=A5=20xterm=206,?=
+ =?UTF-8?q?=20s=C3=A5=20appen=20ikke=20kaster=20fejl?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+xterm 6 fjernede setOptions(); temaet skal sættes på .options. Fejlen blev
+afsløret af Windows-smoketesten, som nu består alle 23 kontroller.
+---
+ src/renderer/js/terminal.js | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/renderer/js/terminal.js b/src/renderer/js/terminal.js
+index 711ed1e..c7e3fa4 100644
+--- a/src/renderer/js/terminal.js
++++ b/src/renderer/js/terminal.js
+@@ -68,7 +68,8 @@ function terminalThemeFor(preset, accent) {
+ function applyTerminalTheme(preset, accent) {
+   CURRENT_TERM_THEME = terminalThemeFor(preset, accent);
+   for (const t of termTabs.values()) {
+-    t.xterm?.setOptions({ theme: CURRENT_TERM_THEME });
++    // xterm 6 removed setOptions(); the theme is a live option on .options.
++    if (t.xterm && t.xterm.options) t.xterm.options.theme = CURRENT_TERM_THEME;
+   }
+ }
+ 
+-- 
+2.56.0.windows.2
+
+
+From 6dfb85284151283b9cfa8442dcbb8be31ef6deb0 Mon Sep 17 00:00:00 2001
+From: Codebuff <noreply@codebuff.com>
+Date: Thu, 29 Oct 2026 00:23:33 +0100
+Subject: [PATCH 05/12] =?UTF-8?q?Ret=20flere=20driftsfejl=20og=20g=C3=B8r?=
+ =?UTF-8?q?=20UI'en=20f=C3=A6rdig?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- agy-stream flusher sidste JSON-linje og Stop giver en ren afbrydelse
+- fejlet modeldownload rapporters nu som fejl i stedet for "starter…"
+- downloads tåler afbrudte forbindelser uden at hænge eller crashe
+- AI-serveren genstartes kun, når ctx/threads faktisk ændres
+- "Nulstil indstillinger" anvender tema og agent-label med det samme
+- auto-kør reagerer ikke på ordet "kørende"
+- sidebar-labels klippes ikke længere; AI-titlen gentager sig ikke
+- smoketesten kan køre, mens appen allerede er åben
+---
+ README.md                   |  8 ++---
+ scripts/smoke-test.js       |  6 +++-
+ scripts/verify-ui.js        |  9 +++---
+ src/main/ai.js              | 59 ++++++++++++++++++++++---------------
+ src/main/localai.js         | 51 +++++++++++++++++++++++++++-----
+ src/main/main.js            | 14 ++++++---
+ src/renderer/css/warp.css   |  2 +-
+ src/renderer/js/ai.js       |  4 ++-
+ src/renderer/js/app.js      |  9 ++++++
+ src/renderer/js/settings.js | 11 +++----
+ test/localai.test.js        |  3 ++
+ 11 files changed, 124 insertions(+), 52 deletions(-)
+
+diff --git a/README.md b/README.md
+index eed9032..b053095 100644
+--- a/README.md
++++ b/README.md
+@@ -6,9 +6,9 @@ An AI-inspired terminal for Windows with an integrated **AI agent** — chat wit
+ 
+ ## Features
+ 
+-- **UI** — dark theme, left sidebar with shells, tabbed terminals, and the signature bottom prompt box
++- **UI** — dark and light themes, left sidebar with shells, tabbed terminals, and the signature bottom prompt box
+ - **Real PTY sessions** — full-color PowerShell / PowerShell 7 / cmd / Git Bash tabs (ConPTY via node-pty)
+-- **AI chat panel** — streaming answers with command code blocks; every block gets **Copy / Insert / Run** buttons (Run types it into the active tab)
++- **AI chat panel** — streaming answers with command code blocks; every block gets **Kopiér / Indsæt / Kør** buttons (Kør types it into the active tab)
+ - **Agent mode** — describe a job ("find what's eating port 3000 and kill it") and the agent plans, runs commands in your terminal, reads the output and adapts until done. Live step-by-step view, Stop button, and a hard deny-list for dangerous commands
+ - **Bring any AI** — **indbygget offline-model** (Qwen2.5 Coder, hardkodet — virker uden internet), local (Ollama, LM Studio, llama.cpp) or cloud (OpenRouter, **OmniRoute**, OpenAI, Claude, Gemini, Qwen, Kimi) or the locally installed Antigravity CLI as the agent brain
+ - **USB-portable** — put the folder (with a `Data` directory) on a USB stick and carry your terminal, AI, settings, hosts and **full history** between PCs. Perfect for troubleshooting machines on a LAN
+@@ -65,7 +65,7 @@ Unplug, walk to the next PC, plug in, run — your AI, your hosts, your history,
+ Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service sshd; Set-Service sshd -StartupType Automatic; New-NetFirewallRule -Name sshd -DisplayName "OpenSSH Server" -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
+ ```
+ 
+-4. Click the host in the sidebar → a remote tab opens. Type commands in the bottom prompt box — they execute **on that PC**, stream output live, and land in the permanent history marked `REMOTE`.
++4. Click the host in the sidebar → a remote tab opens. Type commands in the bottom prompt box — they execute **on that PC**, stream output live, and land in the permanent history marked **Netværk**.
+ 
+ ## Connect an AI
+ 
+@@ -167,7 +167,7 @@ Runs the AI layer against mock local servers (no Ollama required) and verifies m
+ 
+ ## Security notes
+ 
+-- API keys live in `%APPDATA%\Lennart Terminal\settings.json` — never commit this file, never paste keys into issues
++- API keys live in `%APPDATA%\Lennart Terminal\settings.json` (or `Data\settings.json` in portable mode) — never commit this file, never paste keys into issues
+ - The agent's destructive-command confirmation can be relaxed in Indstillinger, but the hard deny-list (`format`, `diskpart`, `bcdedit`, …) cannot
+ - Terminal output is only sent to your configured AI provider when you attach it
+ 
+diff --git a/scripts/smoke-test.js b/scripts/smoke-test.js
+index 5c36cd5..fb01351 100644
+--- a/scripts/smoke-test.js
++++ b/scripts/smoke-test.js
+@@ -177,7 +177,11 @@ function launchApp(profile, port) {
+   const exe = electronExe();
+   if (!exe) throw new Error('Electron blev ikke fundet — kør "npm ci" først.');
+ 
+-  const child = spawn(exe, ['.', `--remote-debugging-port=${port}`], {
++  // --user-data-dir gives this instance its own single-instance lock. Setting
++  // APPDATA alone does not isolate the lock on Windows, so the test used to
++  // fail whenever the user already had Lennart Terminal open.
++  const userDataDir = path.join(profile.appdata, 'Lennart Terminal');
++  const child = spawn(exe, ['.', `--user-data-dir=${userDataDir}`, `--remote-debugging-port=${port}`], {
+     cwd: ROOT,
+     env: {
+       ...process.env,
+diff --git a/scripts/verify-ui.js b/scripts/verify-ui.js
+index 6cd1312..c5e1101 100644
+--- a/scripts/verify-ui.js
++++ b/scripts/verify-ui.js
+@@ -261,10 +261,11 @@ async function main() {
+   const label = await evaluate(`document.getElementById('ai-model-label').textContent`);
+   assert(label.includes('Indbygget'), `AI header shows embedded model ("${label}")`);
+   const selectedModel = await evaluate(`(window.__lennartSettings && window.__lennartSettings.ai && window.__lennartSettings.ai.model) || ''`);
+-  assert(
+-    selectedModel ? label.includes(selectedModel) : label.includes('indbygget model'),
+-    `AI header shows the selected model ("${label}" vs "${selectedModel || 'indbygget model'}")`,
+-  );
++  const provider = await evaluate(`(window.__lennartSettings && window.__lennartSettings.ai && window.__lennartSettings.ai.provider) || ''`);
++  const headerOk = provider === 'lennart-local'
++    ? !/·\s*indbygget model/i.test(label)
++    : (selectedModel ? label.includes(selectedModel) : true);
++  assert(headerOk, `AI header is concise and accurate ("${label}")`);
+ 
+   // The suggestion chips in the AI pane must be Danish
+   const sugg = JSON.parse(await evaluate(`JSON.stringify(
+diff --git a/src/main/ai.js b/src/main/ai.js
+index 3c092bc..45aa12a 100644
+--- a/src/main/ai.js
++++ b/src/main/ai.js
+@@ -501,32 +501,34 @@ function runAgyAgent({ prompt, cwd, onEvent, signal, model, allowTools }) {
+       try { child.kill(); } catch { /* ignore */ }
+     });
+ 
++    const handleLine = (line) => {
++      const t = line.trim();
++      if (!t) return;
++      try {
++        const ev = JSON.parse(t);
++        // agy stream-json: step_update carries text_delta / tool steps,
++        // result carries the final response
++        if (ev.event === 'step_update' && ev.step_update) {
++          const su = ev.step_update;
++          if (typeof su.text_delta === 'string' && su.text_delta) {
++            fullText += su.text_delta;
++            onEvent && onEvent({ type: 'text', text: su.text_delta });
++          } else if (su.step_type && su.step_type !== 'user_input' && su.step_type !== 'agent_response') {
++            onEvent && onEvent({ type: 'tool', name: su.step_type, detail: su.state || '' });
++          }
++        } else if (ev.event === 'result' && ev.result) {
++          if (typeof ev.result.response === 'string' && ev.result.response) {
++            fullText = ev.result.response;
++          }
++        }
++      } catch { /* non-JSON line (banners etc.) */ }
++    };
++
+     child.stdout.on('data', (d) => {
+       buf += d.toString();
+       const lines = buf.split('\n');
+       buf = lines.pop() || '';
+-      for (const line of lines) {
+-        const t = line.trim();
+-        if (!t) continue;
+-        try {
+-          const ev = JSON.parse(t);
+-          // agy stream-json: step_update carries text_delta / tool steps,
+-          // result carries the final response
+-          if (ev.event === 'step_update' && ev.step_update) {
+-            const su = ev.step_update;
+-            if (typeof su.text_delta === 'string' && su.text_delta) {
+-              fullText += su.text_delta;
+-              onEvent && onEvent({ type: 'text', text: su.text_delta });
+-            } else if (su.step_type && su.step_type !== 'user_input' && su.step_type !== 'agent_response') {
+-              onEvent && onEvent({ type: 'tool', name: su.step_type, detail: su.state || '' });
+-            }
+-          } else if (ev.event === 'result' && ev.result) {
+-            if (typeof ev.result.response === 'string' && ev.result.response) {
+-              fullText = ev.result.response;
+-            }
+-          }
+-        } catch { /* non-JSON line (banners etc.) */ }
+-      }
++      for (const line of lines) handleLine(line);
+     });
+ 
+     child.stderr.on('data', (d) => {
+@@ -542,8 +544,17 @@ function runAgyAgent({ prompt, cwd, onEvent, signal, model, allowTools }) {
+       ));
+     });
+     child.on('close', (code) => {
+-      if (code === 0) resolve({ text: fullText });
+-      else reject(new Error(`agy afsluttede med kode ${code}`));
++      // The last JSON event may arrive without a trailing newline.
++      if (buf.trim()) handleLine(buf);
++      if (signal && signal.aborted) {
++        const err = new Error('agy afbrudt');
++        err.name = 'AbortError';
++        reject(err);
++      } else if (code === 0) {
++        resolve({ text: fullText });
++      } else {
++        reject(new Error(`agy afsluttede med kode ${code}`));
++      }
+     });
+   });
+ }
+diff --git a/src/main/localai.js b/src/main/localai.js
+index 85fe0a1..20030fe 100644
+--- a/src/main/localai.js
++++ b/src/main/localai.js
+@@ -133,6 +133,15 @@ function downloadFile(url, destFile, onProgress) {
+   const maxRedirects = 5;
+   return new Promise((resolve, reject) => {
+     let redirectsLeft = maxRedirects;
++    let settled = false;
++    const partFile = destFile + '.part';
++
++    const finish = (err) => {
++      if (settled) return;
++      settled = true;
++      if (err) reject(err);
++      else resolve(destFile);
++    };
+ 
+     const get = (target) => {
+       https.get(target, { headers: { 'User-Agent': 'LennartTerminal' } }, (res) => {
+@@ -140,7 +149,7 @@ function downloadFile(url, destFile, onProgress) {
+         if (res.statusCode >= 300 && res.statusCode < 400 && loc) {
+           res.resume();
+           if (redirectsLeft-- <= 0) {
+-            reject(new Error('For mange redirects'));
++            finish(new Error('For mange redirects'));
+             return;
+           }
+           get(new URL(loc, target).toString());
+@@ -148,27 +157,39 @@ function downloadFile(url, destFile, onProgress) {
+         }
+         if (res.statusCode !== 200) {
+           res.resume();
+-          reject(new Error(`Download fejlede: HTTP ${res.statusCode}`));
++          finish(new Error(`Download fejlede: HTTP ${res.statusCode}`));
+           return;
+         }
+         const total = Number(res.headers['content-length'] || 0);
+         let got = 0;
+-        const out = fs.createWriteStream(destFile + '.part');
++        const out = fs.createWriteStream(partFile);
++
++        // A dropped connection used to leave the promise pending forever (or
++        // emit an unhandled stream error and crash the main process).
++        const failDownload = (err) => {
++          try { out.destroy(); } catch { /* already closed */ }
++          try { fs.unlinkSync(partFile); } catch { /* nothing to clean up */ }
++          finish(err);
++        };
++
+         res.on('data', (chunk) => {
+           got += chunk.length;
+           if (onProgress) onProgress({ got, total });
+         });
++        res.on('error', failDownload);
++        res.on('aborted', () => failDownload(new Error('Download blev afbrudt')));
+         res.pipe(out);
+         out.on('finish', () => {
++          if (settled) return;
+           try {
+-            fs.renameSync(destFile + '.part', destFile);
+-            resolve(destFile);
++            fs.renameSync(partFile, destFile);
++            finish();
+           } catch (err) {
+-            reject(err);
++            failDownload(err);
+           }
+         });
+-        out.on('error', reject);
+-      }).on('error', reject);
++        out.on('error', failDownload);
++      }).on('error', (err) => finish(err));
+     };
+ 
+     get(url);
+@@ -297,6 +318,20 @@ class LocalAI {
+     this.state = 'starting';
+     this.lastError = '';
+ 
++    try {
++      return await this._ensureInner(allowDownload);
++    } catch (err) {
++      // A failed download used to leave the state at "starting" forever, so the
++      // UI kept saying "henter…" with no hint about what went wrong.
++      if (this.state !== 'running') {
++        this.state = 'error';
++        this.lastError = String(err.message || err);
++      }
++      throw err;
++    }
++  }
++
++  async _ensureInner(allowDownload) {
+     let bin = this.paths().bin;
+     let model = this.paths().model;
+ 
+diff --git a/src/main/main.js b/src/main/main.js
+index b15e87c..ad86424 100644
+--- a/src/main/main.js
++++ b/src/main/main.js
+@@ -486,12 +486,18 @@ ptyManager.on('exit', (id, code) => {
+ ipcMain.handle('settings:get', () => settings.getAll());
+ 
+ ipcMain.handle('settings:set', (_e, patch) => {
++  const previousLocalAI = settings.get('localAI') || {};
+   settings.set(patch);
+-  // Model settings changed → apply to the embedded AI server; stop it so
+-  // the next chat restarts llama-server with the new ctx/threads.
++  // Only restart the embedded AI when ctx/threads really changed. The renderer
++  // sends the whole localAI block on every save (theme, agent, …), so stopping
++  // unconditionally made "AI: Online" flip to idle after any settings save.
+   if (patch && patch.localAI) {
+-    localAI.configure(settings.get('localAI') || {});
+-    localAI.stop();
++    const next = settings.get('localAI') || {};
++    if (Number(next.ctx) !== Number(previousLocalAI.ctx) ||
++        Number(next.threads) !== Number(previousLocalAI.threads)) {
++      localAI.configure(next);
++      localAI.stop();
++    }
+   }
+   return settings.getAll();
+ });
+diff --git a/src/renderer/css/warp.css b/src/renderer/css/warp.css
+index 5020506..fe06417 100644
+--- a/src/renderer/css/warp.css
++++ b/src/renderer/css/warp.css
+@@ -22,7 +22,7 @@
+   --sans: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+   --titlebar-h: 40px;
+   --menubar-h: 30px;
+-  --sidebar-w: 216px;
++  --sidebar-w: 248px;
+   --ai-w: 380px;
+ }
+ 
+diff --git a/src/renderer/js/ai.js b/src/renderer/js/ai.js
+index 53ce1e4..27623ab 100644
+--- a/src/renderer/js/ai.js
++++ b/src/renderer/js/ai.js
+@@ -548,7 +548,9 @@ async function runAiCommand(cmd) {
+ // ---------------------------------------------------------------------------
+ 
+ function userWantsExecution(text) {
+-  return /(kør|kore|udfør|udfoer|udføre|execut|run it|kører den|udfør den)/i.test(String(text || ''));
++  // Must be a request to execute — “kørende” (running) must NOT match “kør”.
++  const t = String(text || '').toLowerCase();
++  return /(^|[\s,.!?;:])(k(?:ø|o)r|udf(?:ø|o)r(?:e)?|execut(?:e|e it)?|run it|k(?:ø|o)r den|k(?:ø|o)r det|udf(?:ø|o)r den)(?=$|[\s,.!?;:])/i.test(t);
+ }
+ 
+ function extractRunCommand(answer) {
+diff --git a/src/renderer/js/app.js b/src/renderer/js/app.js
+index ba56db7..0ca2aba 100644
+--- a/src/renderer/js/app.js
++++ b/src/renderer/js/app.js
+@@ -424,6 +424,12 @@ async function refreshAiStatus() {
+       // silently start a 1 GB download. Report state only.
+       const st = await window.lennart.localaiStatus();
+       dot.className = `status-dot ${st.running ? 'ok' : 'err'}`;
++      if (st.lastError) {
++        text.textContent = 'AI: Fejl';
++        text.title = st.lastError;
++        return;
++      }
++      text.title = '';
+       text.textContent = st.running
+         ? 'AI: Online · indbygget'
+         : (st.binary && st.model ? 'AI: Offline (starter…)' : 'AI: Offline (henter…)');
+@@ -508,6 +514,9 @@ function wireSettingsEvents() {
+     await window.lennart.resetSettings();
+     window.__lennartSettings = await window.lennart.getSettings();
+     applyFontScale();
++    applyTheme();
++    const agentState = document.getElementById('agent-mode-state');
++    if (agentState) agentState.textContent = window.__lennartSettings.agentMode === false ? 'Fra' : 'Til';
+     if (window.__updateAiHeaderModel) window.__updateAiHeaderModel();
+     await refreshAiStatus();
+     loadSettingsUi();
+diff --git a/src/renderer/js/settings.js b/src/renderer/js/settings.js
+index 7e6128a..71d4672 100644
+--- a/src/renderer/js/settings.js
++++ b/src/renderer/js/settings.js
+@@ -440,13 +440,14 @@ function updateAiHeaderModel() {
+   const s = window.__lennartSettings || {};
+   const pid = (s.ai && s.ai.provider) || 'lennart-local';
+   const info = (window.__providerCatalog && window.__providerCatalog.providers[pid]) || {};
+-  let model = (s.ai && s.ai.model) || 'ingen model';
+-  if (pid === 'lennart-local') {
+-    model = (s.ai && s.ai.model) ? s.ai.model : 'indbygget model';
+-  }
++  // The built-in provider's label already names the model, so don't repeat
++  // "indbygget model" when the user has not picked a specific GGUF file.
++  // The built-in provider's label already names the model family; the exact
++  // GGUF id is long and belongs in Settings, not in the header.
++  const model = pid === 'lennart-local' ? '' : ((s.ai && s.ai.model) || 'ingen model');
+   const fallbackLabel = pid === 'lennart-local' ? 'Indbygget AI (offline)' : pid;
+   const el = document.getElementById('ai-model-label');
+-  if (el) el.textContent = `${info.label || fallbackLabel} · ${model}`;
++  if (el) el.textContent = [info.label || fallbackLabel, model].filter(Boolean).join(' · ');
+ }
+ 
+ window.__updateAiHeaderModel = updateAiHeaderModel;
+diff --git a/test/localai.test.js b/test/localai.test.js
+index 21f3b15..df4c09f 100644
+--- a/test/localai.test.js
++++ b/test/localai.test.js
+@@ -53,6 +53,9 @@ async function testEnsureFailsFastWithoutDownloads(tmpRoot) {
+     () => ai.ensure({ allowDownload: false }),
+     /ikke downloadet/i,
+   );
++  const st = ai.status();
++  assert.strictEqual(st.state, 'error', 'a failed ensure must not stay in "starting"');
++  assert.ok(/ikke downloadet/i.test(st.lastError), 'the failure reason is exposed to the UI');
+   console.log('PASS ensure fails fast with allowDownload=false');
+ }
+ 
+-- 
+2.56.0.windows.2
+
+
+From 9871c7973884df55d22e63b62a904d2ecd6002d5 Mon Sep 17 00:00:00 2001
+From: Codebuff <noreply@codebuff.com>
+Date: Thu, 29 Oct 2026 00:41:35 +0100
+Subject: [PATCH 06/12] =?UTF-8?q?G=C3=B8r=20fjernk=C3=B8rsel=20robust=20p?=
+ =?UTF-8?q?=C3=A5=20b=C3=A5de=20Windows=20og=20Linux?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- SSH-kommandoer sendes som base64 -EncodedCommand, så $variable og pipe
+  ikke bliver opslugt af fjernshellen (bash på Linux, cmd på Windows)
+- forbindelsestesten bruger hostname, som virker på begge platforme
+- README forklarer Linux/macOS-kravet: PowerShell 7 + powershell.exe-navn
+- tests dækker, at kommandoen aldrig sendes rå til fjernshellen
+---
+ README.md           |  2 ++
+ src/main/remote.js  | 21 +++++++++++++++------
+ test/remote.test.js | 21 +++++++++++++++++++--
+ 3 files changed, 36 insertions(+), 8 deletions(-)
+
+diff --git a/README.md b/README.md
+index b053095..57491aa 100644
+--- a/README.md
++++ b/README.md
+@@ -67,6 +67,8 @@ Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service ssh
+ 
+ 4. Click the host in the sidebar → a remote tab opens. Type commands in the bottom prompt box — they execute **on that PC**, stream output live, and land in the permanent history marked **Netværk**.
+ 
++Commands are sent as a base64 `-EncodedCommand`, so `$variables` and `|` reach PowerShell intact instead of being expanded by the remote shell. SSH only: a Linux/macOS target works too — install PowerShell 7 (`pwsh`) and make `powershell.exe` resolve to it (`sudo ln -s "$(command -v pwsh)" /usr/local/bin/powershell.exe`). WinRM is Windows-only.
++
+ ## Connect an AI
+ 
+ Open **Indstillinger (Ctrl+,)** → *AI & modeller* → press **↻** to load models → pick one → **Save**. The sidebar LED turns green when the endpoint answers.
+diff --git a/src/main/remote.js b/src/main/remote.js
+index c1d7d1a..8c32ab2 100644
+--- a/src/main/remote.js
++++ b/src/main/remote.js
+@@ -1,11 +1,12 @@
+ 'use strict';
+ 
+ /**
+- * Network execution: run commands on remote Windows PCs over the LAN.
++ * Network execution: run commands on remote machines over the LAN.
+  *
+  * Two transports:
+- *  - ssh   (recommended): Windows OpenSSH client (`ssh user@host powershell …`),
+- *          works with a key file for fully non-interactive runs.
++ *  - ssh   (recommended): OpenSSH (`ssh user@host powershell -EncodedCommand …`),
++ *          works with a key file and also reaches Linux/macOS hosts that have
++ *          PowerShell 7 exposed as `powershell.exe`.
+  *  - winrm: PowerShell Remoting (`Invoke-Command … -Credential …`), requires
+  *          WinRM to be enabled on the target. Password is passed via an
+  *          EncodedCommand so it never scrolls by in the visible terminal.
+@@ -42,10 +43,17 @@ function buildRemoteArgv(host, method, command, opts) {
+     ].join('; ');
+     return ['powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', b64Utf16(inner)]];
+   }
+-  // ssh (default) — key path optional; powershell on the remote renders the command
++  // ssh (default) — key path optional. The command is passed as a base64
++  // -EncodedCommand so the remote shell (bash on Linux, cmd on Windows) does
++  // not expand $variables or interpret pipes before PowerShell sees them.
++  // Linux/macOS: install PowerShell 7 and make `powershell.exe` resolve to
++  // pwsh (e.g. sudo ln -s "$(command -v pwsh)" /usr/local/bin/powershell.exe).
+   const args = ['-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes'];
+   if (o.keyPath) args.push('-i', o.keyPath);
+-  args.push(o.username ? `${o.username}@${host}` : host, 'powershell.exe', '-NoLogo', '-NoProfile', '-Command', command);
++  args.push(
++    o.username ? `${o.username}@${host}` : host,
++    'powershell.exe', '-NoLogo', '-NoProfile', '-EncodedCommand', b64Utf16(command),
++  );
+   return ['ssh.exe', args];
+ }
+ 
+@@ -123,7 +131,8 @@ class RemoteRunner {
+ 
+   /** Quick reachability test for the add/edit host dialog. */
+   test(hostCfg) {
+-    return this.run(`test_${Date.now()}`, hostCfg, '$env:COMPUTERNAME', 15000);
++    // `hostname` works on Windows PowerShell and on PowerShell 7 for Linux.
++    return this.run(`test_${Date.now()}`, hostCfg, 'hostname', 15000);
+   }
+ }
+ 
+diff --git a/test/remote.test.js b/test/remote.test.js
+index f2bbd30..3bd5a32 100644
+--- a/test/remote.test.js
++++ b/test/remote.test.js
+@@ -14,18 +14,34 @@ async function testSshArgv() {
+   assert.strictEqual(file, 'ssh.exe');
+   assert.ok(args.includes('admin@192.168.1.50'));
+   assert.ok(args.includes('C:\\k.pem'));
+-  assert.ok(args.includes('Get-Date'));
++  assert.ok(!args.includes('Get-Date'), 'command is not passed raw to the remote shell');
++  const encIdx = args.indexOf('-EncodedCommand');
++  assert.ok(encIdx > 0, 'uses -EncodedCommand');
++  assert.strictEqual(Buffer.from(args[encIdx + 1], 'base64').toString('utf16le'), 'Get-Date');
+   assert.ok(!args.some((a) => typeof a === 'string' && /password/i.test(a)), 'no password flags in ssh argv');
+-  console.log('PASS ssh argv');
++  console.log('PASS ssh argv (encoded command)');
+ }
+ 
+ async function testSshArgvWithoutUser() {
+   const [file, args] = buildRemoteArgv('pc12.local', 'ssh', 'hostname', {});
+   assert.strictEqual(file, 'ssh.exe');
+   assert.ok(args.includes('pc12.local'));
++  const encIdx = args.indexOf('-EncodedCommand');
++  assert.strictEqual(Buffer.from(args[encIdx + 1], 'base64').toString('utf16le'), 'hostname');
+   console.log('PASS ssh argv without user');
+ }
+ 
++async function testSshShellSpecialChars() {
++  // Linux/macOS remote shells (and cmd.exe on Windows) must not expand
++  // $variables or split on pipes before PowerShell receives the command.
++  const cmd = '$PSVersionTable.PSVersion | Out-String';
++  const [, args] = buildRemoteArgv('linux-box', 'ssh', cmd, {});
++  const encIdx = args.indexOf('-EncodedCommand');
++  assert.strictEqual(Buffer.from(args[encIdx + 1], 'base64').toString('utf16le'), cmd);
++  assert.ok(!args.includes(cmd), 'raw command never reaches the remote shell');
++  console.log('PASS ssh keeps $variables and pipes intact');
++}
++
+ async function testWinrmArgv() {
+   const [file, args] = buildRemoteArgv('pc13', 'winrm', 'hostname', { username: 'admin', password: 'S3cret!' });
+   assert.strictEqual(file, 'powershell.exe');
+@@ -65,6 +81,7 @@ async function testRunnerMissingSpawn() {
+ async function main() {
+   await testSshArgv();
+   await testSshArgvWithoutUser();
++  await testSshShellSpecialChars();
+   await testWinrmArgv();
+   await testPsQuote();
+   await testSshSetupCommand();
+-- 
+2.56.0.windows.2
+
+
+From 1078f5c00cdd5c30dbd97d176a062913fe52cb7f Mon Sep 17 00:00:00 2001
+From: Codebuff <noreply@codebuff.com>
+Date: Thu, 29 Oct 2026 00:41:35 +0100
+Subject: [PATCH 07/12] =?UTF-8?q?Indl=C3=A6s=20xterm.css,=20s=C3=A5=20term?=
+ =?UTF-8?q?inalen=20ikke=20viser=20m=C3=A5le-tegn?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- xterm 6's layoutregler blev aldrig indlæst, så width-cache-elementet
+  tegnede en række ">" øverst i hver terminal
+- viewporten males ikke længere sort under sidste linje
+- smoketesten kontrollerer, at xterm.css faktisk er aktiv
+---
+ scripts/smoke-test.js     | 8 +++++++-
+ src/renderer/css/warp.css | 6 ++++++
+ src/renderer/index.html   | 4 ++++
+ 3 files changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/scripts/smoke-test.js b/scripts/smoke-test.js
+index fb01351..89c6aff 100644
+--- a/scripts/smoke-test.js
++++ b/scripts/smoke-test.js
+@@ -451,7 +451,9 @@ async function main() {
+       typeRemote: ((document.querySelector('#history-type option[value="remote"]') || {}).textContent || '').trim(),
+       typeAgent: ((document.querySelector('#history-type option[value="agent"]') || {}).textContent || '').trim(),
+       typeAi: ((document.querySelector('#history-type option[value="ai"]') || {}).textContent || '').trim(),
+-      version: ((document.getElementById('version-tag') || {}).textContent || '').trim()
++      version: ((document.getElementById('version-tag') || {}).textContent || '').trim(),
++      xtermHelpers: (() => { const h = document.querySelector('.xterm-helpers');
++        return h ? getComputedStyle(h).position : ''; })()
+     })`));
+ 
+     assert(ui.lang === 'da', `siden er markeret som dansk (lang="${ui.lang}")`);
+@@ -473,6 +475,10 @@ async function main() {
+       `historikkens typer er Lokalt / Netværk / Agent / AI (${ui.typeAi})`,
+     );
+     assert(ui.version === 'v0.2.0', `versionsmærket er korrekt (${ui.version})`);
++    assert(
++      ui.xtermHelpers === 'absolute',
++      `xterm.css er indlæst (helpers position: ${ui.xtermHelpers || 'mangler'})`,
++    );
+ 
+     // ---- 3. typed history (the main fix) ----
+     const typedToken = `smoke-${Date.now().toString(36)}`;
+diff --git a/src/renderer/css/warp.css b/src/renderer/css/warp.css
+index fe06417..1122cac 100644
+--- a/src/renderer/css/warp.css
++++ b/src/renderer/css/warp.css
+@@ -303,6 +303,12 @@ kbd {
+ #terminal-container .xterm {
+   height: 100%;
+ }
++/* xterm.css paints the viewport black (a macOS scrollbar workaround). With a
++   transparent viewport the terminal theme's own background shows through, so
++   the strip below the last row matches the theme instead of a black bar. */
++#terminal-container .xterm .xterm-viewport {
++  background-color: transparent;
++}
+ 
+ /* ============ Prompt box (Warp signature) ============ */
+ 
+diff --git a/src/renderer/index.html b/src/renderer/index.html
+index 234e6f5..ed6c23e 100644
+--- a/src/renderer/index.html
++++ b/src/renderer/index.html
+@@ -5,6 +5,10 @@
+   <meta http-equiv="Content-Security-Policy"
+         content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self';" />
+   <title>Lennart Terminal</title>
++  <!-- xterm's own layout rules (helpers, viewport, char measure) must load
++       before our overrides; without them the width-cache element renders a
++       row of ">" characters at the top of every terminal. -->
++  <link rel="stylesheet" href="../../node_modules/@xterm/xterm/css/xterm.css" />
+   <link rel="stylesheet" href="css/warp.css" />
+ </head>
+ <body>
+-- 
+2.56.0.windows.2
+
+
+From c7e2ff755872a84288ce25646c2845858bcc949e Mon Sep 17 00:00:00 2001
+From: Codebuff <noreply@codebuff.com>
+Date: Thu, 29 Oct 2026 00:44:20 +0100
+Subject: [PATCH 08/12] =?UTF-8?q?Giv=20sidebaren=20plads=20til=20scrollbar?=
+ =?UTF-8?q?,=20s=C3=A5=20labels=20ikke=20klippes?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- en gemt vært giver sidebaren en scrollbar, som spiste 8 px og klippede
+  "Kommandoprompt" og "Aktive forbindelser"
+- sidebaren er 264 px med stabil scrollbar-gutter, så bredden er den samme
+  med og uden scrollbar
+- smoketesten fejler, hvis kommandoprompt-labelen bliver klippet
+---
+ scripts/smoke-test.js     | 5 ++++-
+ src/renderer/css/warp.css | 5 ++++-
+ 2 files changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/scripts/smoke-test.js b/scripts/smoke-test.js
+index 89c6aff..cc810dc 100644
+--- a/scripts/smoke-test.js
++++ b/scripts/smoke-test.js
+@@ -453,7 +453,9 @@ async function main() {
+       typeAi: ((document.querySelector('#history-type option[value="ai"]') || {}).textContent || '').trim(),
+       version: ((document.getElementById('version-tag') || {}).textContent || '').trim(),
+       xtermHelpers: (() => { const h = document.querySelector('.xterm-helpers');
+-        return h ? getComputedStyle(h).position : ''; })()
++        return h ? getComputedStyle(h).position : ''; })(),
++      cmdClipped: (() => { const b = document.querySelector('.shell-btn[data-shell="cmd"]');
++        return b ? b.scrollWidth > b.clientWidth : true; })()
+     })`));
+ 
+     assert(ui.lang === 'da', `siden er markeret som dansk (lang="${ui.lang}")`);
+@@ -463,6 +465,7 @@ async function main() {
+     assert(ui.settingsTitleAttr === 'Indstillinger (Ctrl+,)', `tandhjulet har dansk værktøjstip`);
+     assert(ui.historyTitleAttr === 'Historik (Ctrl+H)', `historik-knappen har dansk værktøjstip`);
+     assert(ui.cmdLabel === 'Kommandoprompt', `cmd-knappen hedder "Kommandoprompt" (${ui.cmdLabel})`);
++    assert(!ui.cmdClipped, 'kommandoprompt-label er ikke klippet');
+     assert(ui.newTabLabel.includes('Ny fane'), `ny-fane-knappen er oversat (${ui.newTabLabel})`);
+     assert(
+       ui.promptHint.includes('Spørg AI (Ctrl+Enter)') && ui.promptHint.includes('eller skriv en kommando'),
+diff --git a/src/renderer/css/warp.css b/src/renderer/css/warp.css
+index 1122cac..2bb6749 100644
+--- a/src/renderer/css/warp.css
++++ b/src/renderer/css/warp.css
+@@ -22,7 +22,9 @@
+   --sans: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+   --titlebar-h: 40px;
+   --menubar-h: 30px;
+-  --sidebar-w: 248px;
++  /* 264px + stable scrollbar gutter leaves enough width for the two-column
++     shell labels; without the gutter a saved host's scrollbar clipped them. */
++  --sidebar-w: 264px;
+   --ai-w: 380px;
+ }
+ 
+@@ -1017,6 +1019,7 @@ input[type="text"]:focus, input[type="password"]:focus, select:focus, textarea:f
+ #sidebar {
+   overflow-y: auto;
+   overflow-x: hidden;
++  scrollbar-gutter: stable;
+   scrollbar-width: thin;
+   scrollbar-color: var(--border-strong) transparent;
+ }
+-- 
+2.56.0.windows.2
+
+
+From 1fec72031cc08ed9dc4444afb07827ef918fee1b Mon Sep 17 00:00:00 2001
+From: Codebuff <noreply@codebuff.com>
+Date: Thu, 29 Oct 2026 00:44:53 +0100
+Subject: [PATCH 09/12] =?UTF-8?q?Dokument=C3=A9r=20PowerShell-installation?=
+ =?UTF-8?q?=20p=C3=A5=20Linux=20Mint=2022.x?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Mint rapporterer VERSION_ID=22.3, så Microsofts $VERSION_ID-snippet
+  peger på et ikke-eksisterende ubuntu/22.3-repo
+- README bruger derfor Ubuntu 24.04-feedet eksplicit og viser symlinket,
+  som appens faste powershell.exe-kald kræver
+---
+ README.md | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/README.md b/README.md
+index 57491aa..bab4142 100644
+--- a/README.md
++++ b/README.md
+@@ -69,6 +69,17 @@ Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service ssh
+ 
+ Commands are sent as a base64 `-EncodedCommand`, so `$variables` and `|` reach PowerShell intact instead of being expanded by the remote shell. SSH only: a Linux/macOS target works too — install PowerShell 7 (`pwsh`) and make `powershell.exe` resolve to it (`sudo ln -s "$(command -v pwsh)" /usr/local/bin/powershell.exe`). WinRM is Windows-only.
+ 
++**Linux Mint 22.x / Ubuntu 24.04:** use the Ubuntu 24.04 Microsoft feed explicitly — Mint reports `VERSION_ID=22.3`, so the usual `$VERSION_ID` snippet would request a non-existent `ubuntu/22.3` repo:
++
++```bash
++sudo apt-get update
++sudo apt-get install -y wget apt-transport-https software-properties-common
++wget -q https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb
++sudo dpkg -i packages-microsoft-prod.deb && rm packages-microsoft-prod.deb
++sudo apt-get update && sudo apt-get install -y powershell
++sudo ln -sf /usr/bin/pwsh /usr/local/bin/powershell.exe
++```
++
+ ## Connect an AI
+ 
+ Open **Indstillinger (Ctrl+,)** → *AI & modeller* → press **↻** to load models → pick one → **Save**. The sidebar LED turns green when the endpoint answers.
+-- 
+2.56.0.windows.2
+
+
+From 2ee5255d31019d3b48d70d4083b77feacc8b9055 Mon Sep 17 00:00:00 2001
+From: Codebuff <noreply@codebuff.com>
+Date: Thu, 29 Oct 2026 01:05:23 +0100
+Subject: [PATCH 10/12] Vis fjernfejl som tekst i stedet for CLIXML
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- PowerShell serialiserede stderr som "#< CLIXML … _x001B_[31;1m …",
+  fordi SSH giver den en omdirigeret fejlstrøm
+- -OutputFormat Text giver læsbare fejl på både Windows PowerShell og pwsh
+- testen sikrer, at flaget altid følger med SSH-kaldet
+---
+ README.md           | 2 +-
+ src/main/remote.js  | 6 +++++-
+ test/remote.test.js | 1 +
+ 3 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/README.md b/README.md
+index bab4142..3e06c90 100644
+--- a/README.md
++++ b/README.md
+@@ -67,7 +67,7 @@ Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Start-Service ssh
+ 
+ 4. Click the host in the sidebar → a remote tab opens. Type commands in the bottom prompt box — they execute **on that PC**, stream output live, and land in the permanent history marked **Netværk**.
+ 
+-Commands are sent as a base64 `-EncodedCommand`, so `$variables` and `|` reach PowerShell intact instead of being expanded by the remote shell. SSH only: a Linux/macOS target works too — install PowerShell 7 (`pwsh`) and make `powershell.exe` resolve to it (`sudo ln -s "$(command -v pwsh)" /usr/local/bin/powershell.exe`). WinRM is Windows-only.
++Commands are sent as a base64 `-EncodedCommand` with `-OutputFormat Text`, so `$variables` and `|` reach PowerShell intact instead of being expanded by the remote shell, and errors stay readable instead of arriving as `#< CLIXML` XML. SSH only: a Linux/macOS target works too — install PowerShell 7 (`pwsh`) and make `powershell.exe` resolve to it (`sudo ln -s "$(command -v pwsh)" /usr/local/bin/powershell.exe`). WinRM is Windows-only.
+ 
+ **Linux Mint 22.x / Ubuntu 24.04:** use the Ubuntu 24.04 Microsoft feed explicitly — Mint reports `VERSION_ID=22.3`, so the usual `$VERSION_ID` snippet would request a non-existent `ubuntu/22.3` repo:
+ 
+diff --git a/src/main/remote.js b/src/main/remote.js
+index 8c32ab2..67264e1 100644
+--- a/src/main/remote.js
++++ b/src/main/remote.js
+@@ -52,7 +52,11 @@ function buildRemoteArgv(host, method, command, opts) {
+   if (o.keyPath) args.push('-i', o.keyPath);
+   args.push(
+     o.username ? `${o.username}@${host}` : host,
+-    'powershell.exe', '-NoLogo', '-NoProfile', '-EncodedCommand', b64Utf16(command),
++    'powershell.exe', '-NoLogo', '-NoProfile',
++    // Without this, PowerShell serialises errors as CLIXML ("#< CLIXML …
++    // _x001B_[31;1m…") because SSH gives it redirected stderr.
++    '-OutputFormat', 'Text',
++    '-EncodedCommand', b64Utf16(command),
+   );
+   return ['ssh.exe', args];
+ }
+diff --git a/test/remote.test.js b/test/remote.test.js
+index 3bd5a32..bf9646e 100644
+--- a/test/remote.test.js
++++ b/test/remote.test.js
+@@ -17,6 +17,7 @@ async function testSshArgv() {
+   assert.ok(!args.includes('Get-Date'), 'command is not passed raw to the remote shell');
+   const encIdx = args.indexOf('-EncodedCommand');
+   assert.ok(encIdx > 0, 'uses -EncodedCommand');
++  assert.strictEqual(args[args.indexOf('-OutputFormat') + 1], 'Text', 'prevents CLIXML error output');
+   assert.strictEqual(Buffer.from(args[encIdx + 1], 'base64').toString('utf16le'), 'Get-Date');
+   assert.ok(!args.some((a) => typeof a === 'string' && /password/i.test(a)), 'no password flags in ssh argv');
+   console.log('PASS ssh argv (encoded command)');
+-- 
+2.56.0.windows.2
+
+
+From 19087a9b50e21e1fb05a908cbcf31982809bba48 Mon Sep 17 00:00:00 2001
+From: Codebuff <noreply@codebuff.com>
+Date: Thu, 29 Oct 2026 01:05:23 +0100
+Subject: [PATCH 11/12] Lad fjern-fanen fylde hele terminalpanelet
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- activateTab satte display:block på alle faner, også fjern-faner, så
+  flex-kolonnen kollapsede og terminalen stoppede ved 408 px
+- resten af panelet var sort, og tekst forsvandt ved scroll
+- smoketesten åbner nu en fjern-fane og kræver, at xterm og viewport
+  fylder panelet
+---
+ scripts/smoke-test.js       | 34 +++++++++++++++++++++++++++++++++-
+ src/renderer/js/terminal.js |  5 ++++-
+ 2 files changed, 37 insertions(+), 2 deletions(-)
+
+diff --git a/scripts/smoke-test.js b/scripts/smoke-test.js
+index cc810dc..8da69af 100644
+--- a/scripts/smoke-test.js
++++ b/scripts/smoke-test.js
+@@ -628,7 +628,39 @@ async function main() {
+     await waitForExpr(cdp, "!document.body.classList.contains('theme-lys')", 10000, 'standardtema');
+     await cdp.evaluate('closeSettings(); true');
+ 
+-    // ---- 7. no renderer errors ----
++    // ---- 7. remote tabs fill the pane ----
++    // Regression: activateTab() forced display:block on every tab, so a remote
++    // tab's flex column collapsed and left a black void below the terminal.
++    await cdp.evaluate(`(() => {
++      window.createRemoteTab({ id: 'smoke-remote', name: 'Smoke Remote', host: '127.0.0.1', method: 'ssh' });
++      return true;
++    })()`);
++    await sleep(700);
++    const remoteLayout = JSON.parse(await cdp.evaluate(`JSON.stringify((() => {
++      const tab = activeTab();
++      if (!tab || !tab.remote) return { remote: false };
++      const tr = tab.el.getBoundingClientRect();
++      const xr = tab.el.querySelector('.xterm').getBoundingClientRect();
++      const vr = tab.el.querySelector('.xterm-viewport').getBoundingClientRect();
++      return {
++        remote: true,
++        display: tab.el.style.display,
++        tabH: Math.round(tr.height),
++        xtermH: Math.round(xr.height),
++        viewportH: Math.round(vr.height)
++      };
++    })())`));
++    assert(remoteLayout.remote && remoteLayout.display === 'flex',
++      `fjern-fanen bruger flex-layout (${remoteLayout.display || 'ingen fane'})`);
++    assert(remoteLayout.xtermH >= remoteLayout.tabH - 60,
++      `fjern-terminalen fylder panelet (${remoteLayout.xtermH}/${remoteLayout.tabH})`);
++    assert(Math.abs(remoteLayout.viewportH - remoteLayout.xtermH) <= 2,
++      `viewporten fylder terminalen (${remoteLayout.viewportH}/${remoteLayout.xtermH})`);
++    pass('Fjern-fanen fylder hele panelet');
++    await cdp.evaluate('closeTab(activeTabId); true');
++    await waitForExpr(cdp, '!activeTab().remote', 5000, 'fjern-fane lukket');
++
++    // ---- 8. no renderer errors ----
+     await sleep(800);
+     assert(
+       cdp.problems.length === 0,
+diff --git a/src/renderer/js/terminal.js b/src/renderer/js/terminal.js
+index c7e3fa4..1384b62 100644
+--- a/src/renderer/js/terminal.js
++++ b/src/renderer/js/terminal.js
+@@ -306,7 +306,10 @@ function activateTab(tabId) {
+   activeTabId = tabId;
+ 
+   for (const [id, t] of termTabs) {
+-    t.el.style.display = id === tabId ? 'block' : 'none';
++    // Remote tabs are flex columns (banner + terminal); forcing `block` here
++    // left the terminal at its intrinsic height (408px) with a black void
++    // below it. Local tabs keep the plain block layout.
++    t.el.style.display = id === tabId ? (t.remote ? 'flex' : 'block') : 'none';
+     t.tabEl?.classList.toggle('active', id === tabId);
+   }
+   // Give the DOM a tick to lay out before fitting
+-- 
+2.56.0.windows.2
+
+
+From 705a07b514a460ff0a0474d18748cf639870e611 Mon Sep 17 00:00:00 2001
+From: Codebuff <noreply@codebuff.com>
+Date: Thu, 29 Oct 2026 01:18:41 +0100
+Subject: [PATCH 12/12] =?UTF-8?q?Fjern=20DevTools,=20g=C3=B8r=20knapper=20?=
+ =?UTF-8?q?tydelige=20og=20tilf=C3=B8j=20r=C3=B8d=20v=C3=A6rt-toggle?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- DevTools-knappen er fjernet fra topbjælken; historik og indstillinger
+  har fået en synlig knapflade
+- sidebar-knapper, værtsrækker, ny fane og kopiér har nu baggrund og
+  kant, så de tydeligt kan klikkes; "Tilføj vært" er stiplet
+- værtslisten skjuler vandret overløb, som gav den røde scrollbar-streg
+- klik på en vært åbner fjern-fanen og giver rød markering; klik igen
+  lukker fanen og fjerner markeringen, og luk via fanens × rydder den
+- smoketesten dækker DevTools-fjernelsen og rød til/fra-toggle
+---
+ scripts/smoke-test.js       | 34 +++++++++++++++---
+ src/renderer/css/warp.css   | 71 +++++++++++++++++++++++++++++--------
+ src/renderer/index.html     |  1 -
+ src/renderer/js/app.js      |  1 -
+ src/renderer/js/history.js  | 14 +++++++-
+ src/renderer/js/terminal.js | 20 +++++++++++
+ 6 files changed, 118 insertions(+), 23 deletions(-)
+
+diff --git a/scripts/smoke-test.js b/scripts/smoke-test.js
+index 8da69af..135fb18 100644
+--- a/scripts/smoke-test.js
++++ b/scripts/smoke-test.js
+@@ -443,6 +443,7 @@ async function main() {
+       historyTitle: ((document.querySelector('#history-dialog h2') || {}).textContent || '').trim(),
+       settingsTitleAttr: (document.getElementById('btn-settings') || {}).title || '',
+       historyTitleAttr: (document.getElementById('btn-history') || {}).title || '',
++      devtoolsButton: !!document.getElementById('btn-devtools'),
+       cmdLabel: ((document.querySelector('.shell-btn[data-shell="cmd"]') || {}).textContent || '').trim(),
+       newTabLabel: ((document.getElementById('btn-new-tab') || {}).textContent || '').trim(),
+       promptHint: ((document.getElementById('prompt-hint') || {}).textContent || '').trim(),
+@@ -464,6 +465,7 @@ async function main() {
+     assert(ui.historyTitle.includes('Historik'), `historikvinduet er på dansk (${ui.historyTitle})`);
+     assert(ui.settingsTitleAttr === 'Indstillinger (Ctrl+,)', `tandhjulet har dansk værktøjstip`);
+     assert(ui.historyTitleAttr === 'Historik (Ctrl+H)', `historik-knappen har dansk værktøjstip`);
++    assert(!ui.devtoolsButton, 'DevTools-knappen er fjernet fra topbjælken');
+     assert(ui.cmdLabel === 'Kommandoprompt', `cmd-knappen hedder "Kommandoprompt" (${ui.cmdLabel})`);
+     assert(!ui.cmdClipped, 'kommandoprompt-label er ikke klippet');
+     assert(ui.newTabLabel.includes('Ny fane'), `ny-fane-knappen er oversat (${ui.newTabLabel})`);
+@@ -628,13 +630,29 @@ async function main() {
+     await waitForExpr(cdp, "!document.body.classList.contains('theme-lys')", 10000, 'standardtema');
+     await cdp.evaluate('closeSettings(); true');
+ 
+-    // ---- 7. remote tabs fill the pane ----
++    // ---- 7. remote host toggle + full-height terminal ----
++    // Save a temporary host and open it from the sidebar: this exercises the
++    // real click path, the red active state and the click-again toggle.
+     // Regression: activateTab() forced display:block on every tab, so a remote
+     // tab's flex column collapsed and left a black void below the terminal.
+-    await cdp.evaluate(`(() => {
+-      window.createRemoteTab({ id: 'smoke-remote', name: 'Smoke Remote', host: '127.0.0.1', method: 'ssh' });
++    await cdp.evaluate(`(async () => {
++      await window.lennart.hostsSave({ id: 'smoke-host', name: 'Smoke Host', host: '127.0.0.1', method: 'ssh' });
++      await loadHosts();
+       return true;
+     })()`);
++    await waitForExpr(
++      cdp,
++      `!!document.querySelector('.host-item[data-host-id="smoke-host"]')`,
++      5000,
++      'smoke-vært',
++    );
++    await cdp.evaluate(`document.querySelector('.host-item[data-host-id="smoke-host"]').click(); true`);
++    await waitForExpr(
++      cdp,
++      `!!activeTab() && activeTab().remote && document.querySelector('.host-item[data-host-id="smoke-host"]').classList.contains('active')`,
++      5000,
++      'rød aktiv vært',
++    );
+     await sleep(700);
+     const remoteLayout = JSON.parse(await cdp.evaluate(`JSON.stringify((() => {
+       const tab = activeTab();
+@@ -657,8 +675,14 @@ async function main() {
+     assert(Math.abs(remoteLayout.viewportH - remoteLayout.xtermH) <= 2,
+       `viewporten fylder terminalen (${remoteLayout.viewportH}/${remoteLayout.xtermH})`);
+     pass('Fjern-fanen fylder hele panelet');
+-    await cdp.evaluate('closeTab(activeTabId); true');
+-    await waitForExpr(cdp, '!activeTab().remote', 5000, 'fjern-fane lukket');
++    await cdp.evaluate(`document.querySelector('.host-item[data-host-id="smoke-host"]').click(); true`);
++    await waitForExpr(
++      cdp,
++      `!activeTab().remote && !document.querySelector('.host-item[data-host-id="smoke-host"]').classList.contains('active')`,
++      5000,
++      'vært slået fra',
++    );
++    pass('Rød vært kan slås fra igen');
+ 
+     // ---- 8. no renderer errors ----
+     await sleep(800);
+diff --git a/src/renderer/css/warp.css b/src/renderer/css/warp.css
+index 2bb6749..cd07132 100644
+--- a/src/renderer/css/warp.css
++++ b/src/renderer/css/warp.css
+@@ -140,6 +140,20 @@ kbd {
+ }
+ .tb-btn:hover { background: var(--bg-hover); color: var(--text); }
+ .tb-close:hover { background: #c4342c; color: #fff; }
++/* History/settings get a visible button surface; window controls stay flat. */
++#btn-history, #btn-settings {
++  width: 34px;
++  height: 26px;
++  margin: 7px 2px;
++  border: 1px solid var(--border);
++  border-radius: 7px;
++  background: var(--bg-panel);
++  color: var(--text);
++}
++#btn-history:hover, #btn-settings:hover {
++  background: var(--bg-hover);
++  border-color: var(--accent);
++}
+ 
+ /* ============ Layout ============ */
+ 
+@@ -185,19 +199,28 @@ kbd {
+ .side-section { display: flex; flex-direction: column; gap: 3px; }
+ .side-btn {
+   text-align: left;
+-  background: transparent;
+-  border-color: transparent;
++  /* A visible surface and border makes it obvious these are clickable,
++     instead of blending into the sidebar background. */
++  background: var(--bg-panel);
++  border-color: var(--border);
+   padding: 7px 10px;
+   border-radius: 6px;
+   color: var(--text-dim);
+ }
+-.side-btn:hover { background: var(--bg-hover); color: var(--text); }
++.side-btn:hover {
++  background: var(--bg-hover);
++  border-color: var(--border-strong);
++  color: var(--text);
++}
++.side-btn:active { background: var(--bg-active); }
+ .side-btn.primary {
+   background: var(--accent-soft);
+-  border-color: transparent;
+-  color: #b3a8ff;
++  border-color: rgba(124, 108, 255, 0.45);
++  color: #c9c0ff;
+ }
+ .side-btn.primary:hover { background: rgba(124, 108, 255, 0.28); }
++#btn-add-host { border-style: dashed; background: transparent; }
++#btn-add-host:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+ .side-btn .ico { margin-right: 6px; }
+ .side-footer {
+   margin-top: auto;
+@@ -270,14 +293,17 @@ kbd {
+ }
+ .tab .tab-close:hover { color: var(--text); background: var(--bg-active); }
+ #btn-new-tab-inline {
+-  width: 30px;
+-  border: none;
+-  background: transparent;
+-  color: var(--text-dim);
++  width: 28px;
++  height: 26px;
++  margin: 2px;
++  border: 1px solid var(--border);
++  border-radius: 6px;
++  background: var(--bg-panel);
++  color: var(--text);
+   font-size: 15px;
+   padding: 0;
+ }
+-#btn-new-tab-inline:hover { background: var(--bg-hover); color: var(--text); }
++#btn-new-tab-inline:hover { background: var(--bg-hover); border-color: var(--accent); }
+ 
+ /* ============ Content split ============ */
+ 
+@@ -708,12 +734,13 @@ kbd {
+   margin-bottom: 4px;
+   max-height: 78px;
+   overflow-y: auto;
++  overflow-x: hidden;
+   scrollbar-width: thin;
+ }
+ .host-item {
+   display: flex; align-items: center; gap: 8px;
+-  padding: 6px 10px; border-radius: 8px; border: 1px solid transparent;
+-  background: transparent; color: var(--text); cursor: pointer; text-align: left;
++  padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border);
++  background: var(--bg-panel); color: var(--text); cursor: pointer; text-align: left;
+   font-size: 12.5px; font-family: inherit; width: 100%;
+ }
+ .host-item:hover { background: var(--bg-hover); border-color: var(--border); }
+@@ -932,6 +959,17 @@ input[type="text"]:focus, input[type="password"]:focus, select:focus, textarea:f
+ .host-item { transition: background 120ms ease, border-color 120ms ease, transform 80ms ease; }
+ .host-item:hover { border-color: rgba(124, 108, 255, .45); transform: translateX(2px); }
+ 
++/* Active host: a clear red toggle while its remote tab is open. Clicking the
++   host again closes the tab and removes the red state. */
++.host-item.active,
++.host-item.active:hover {
++  background: rgba(248, 113, 113, .15);
++  border-color: var(--red);
++  transform: none;
++}
++.host-item.active .name { color: var(--red); font-weight: 600; }
++.host-item.active .dot { box-shadow: 0 0 6px rgba(248, 113, 113, .65); }
++
+ /* Status dot glows when healthy */
+ .status-dot.ok { box-shadow: 0 0 6px rgba(74, 222, 128, .7); }
+ 
+@@ -1216,13 +1254,16 @@ input[type="text"]:focus, input[type="password"]:focus, select:focus, textarea:f
+ 
+ #btn-copy-term {
+   width: auto;
++  height: 26px;
++  margin: 2px 0 0 2px;
+   padding: 0 10px;
+   font-size: 11px;
+-  border: none;
+-  background: transparent;
++  border: 1px solid var(--border);
++  border-radius: 6px;
++  background: var(--bg-panel);
+   color: var(--text-dim);
+ }
+-#btn-copy-term:hover { background: var(--bg-hover); color: var(--text); }
++#btn-copy-term:hover { background: var(--bg-hover); border-color: var(--border-strong); color: var(--text); }
+ #btn-copy-term.ok { color: var(--green); }
+ 
+ /* ---- Settings: section nav chips ---- */
+diff --git a/src/renderer/index.html b/src/renderer/index.html
+index ed6c23e..b740eca 100644
+--- a/src/renderer/index.html
++++ b/src/renderer/index.html
+@@ -21,7 +21,6 @@
+     <div class="titlebar-actions">
+       <button id="btn-history" class="tb-btn" title="Historik (Ctrl+H)">&#128218;</button>
+       <button id="btn-settings" class="tb-btn" title="Indstillinger (Ctrl+,)">&#9881;</button>
+-      <button id="btn-devtools" class="tb-btn" title="Åbn/luk udviklerværktøjer">&#128366;</button>
+       <button id="btn-minimize" class="tb-btn" title="Minimér">&#8211;</button>
+       <button id="btn-maximize" class="tb-btn" title="Maksimér">&#9633;</button>
+       <button id="btn-close" class="tb-btn tb-close" title="Luk">&#10005;</button>
+diff --git a/src/renderer/js/app.js b/src/renderer/js/app.js
+index 0ca2aba..bfe9b76 100644
+--- a/src/renderer/js/app.js
++++ b/src/renderer/js/app.js
+@@ -31,7 +31,6 @@ async function bootApp() {
+   document.getElementById('btn-minimize').addEventListener('click', () => window.lennart.minimize());
+   document.getElementById('btn-maximize').addEventListener('click', () => window.lennart.maximize());
+   document.getElementById('btn-close').addEventListener('click', () => window.lennart.closeWindow());
+-  document.getElementById('btn-devtools').addEventListener('click', () => window.lennart.openDevTools());
+   document.getElementById('btn-settings').addEventListener('click', openSettings);
+ 
+   document.getElementById('btn-new-tab').addEventListener('click', () => newTab());
+diff --git a/src/renderer/js/history.js b/src/renderer/js/history.js
+index a8bc6f3..5adbe26 100644
+--- a/src/renderer/js/history.js
++++ b/src/renderer/js/history.js
+@@ -19,7 +19,8 @@ async function loadHosts() {
+   for (const h of hosts) {
+     const el = document.createElement('button');
+     el.className = 'host-item';
+-    el.title = `${h.host} · ${(h.method || 'ssh').toUpperCase()} — klik for at åbne fjern-fane`;
++    el.dataset.hostId = h.id;
++    el.title = `${h.host} · ${(h.method || 'ssh').toUpperCase()} — klik for at åbne/lukke fjern-fanen`;
+     el.innerHTML = `
+       <span class="dot ok"></span>
+       <span class="name">${escapeHtml(h.name || h.host)}</span>
+@@ -34,6 +35,8 @@ async function loadHosts() {
+     el.addEventListener('click', () => openRemoteTab(h));
+     list.appendChild(el);
+   }
++  // Re-apply the red active state after the list is rebuilt.
++  if (typeof syncHostHighlights === 'function') syncHostHighlights();
+ }
+ 
+ function openHostDialog(existing) {
+@@ -121,6 +124,15 @@ function initHostUI() {
+ // ---------------------------------------------------------------------------
+ 
+ function openRemoteTab(host) {
++  if (typeof remoteTabForHost !== 'function') return;
++  const existing = remoteTabForHost(host.id);
++  if (existing) {
++    // Second click on the active host closes its tab (and clears the red
++    // highlight); clicking an inactive open host brings it back.
++    if (existing.tabId === activeTabId) closeTab(existing.tabId);
++    else activateTab(existing.tabId);
++    return;
++  }
+   if (typeof createRemoteTab === 'function') createRemoteTab(host);
+ }
+ 
+diff --git a/src/renderer/js/terminal.js b/src/renderer/js/terminal.js
+index 1384b62..7e4be0c 100644
+--- a/src/renderer/js/terminal.js
++++ b/src/renderer/js/terminal.js
+@@ -312,6 +312,7 @@ function activateTab(tabId) {
+     t.el.style.display = id === tabId ? (t.remote ? 'flex' : 'block') : 'none';
+     t.tabEl?.classList.toggle('active', id === tabId);
+   }
++  syncHostHighlights();
+   // Give the DOM a tick to lay out before fitting
+   requestAnimationFrame(() => tab.fit());
+   const input = document.getElementById('prompt-input');
+@@ -336,6 +337,24 @@ function activeTab() {
+   return termTabs.get(activeTabId) || null;
+ }
+ 
++/** Find the remote tab belonging to a saved host. */
++function remoteTabForHost(hostId) {
++  if (!hostId) return null;
++  for (const t of termTabs.values()) {
++    if (t.remote && t.hostId === hostId) return t;
++  }
++  return null;
++}
++
++/** Red-highlight the host whose remote tab is active; clear all others. */
++function syncHostHighlights() {
++  const tab = activeTab();
++  const hostId = tab && tab.remote ? tab.hostId : null;
++  document.querySelectorAll('#host-list .host-item').forEach((el) => {
++    el.classList.toggle('active', Boolean(hostId) && el.dataset.hostId === hostId);
++  });
++}
++
+ /**
+  * Remote host tab: a read-only-ish xterm view where commands run on a LAN
+  * host over SSH/WinRM. Output streams back via 'remote:data'. The command
+@@ -346,6 +365,7 @@ function createRemoteTab(host) {
+     tabId: `tab_${++tabCounter}`,
+     remote: true,
+     host,
++    hostId: host.id || host.host,
+     sessionId: null,
+     dead: false,
+     busy: false,
+-- 
+2.56.0.windows.2
+

@@ -72,6 +72,14 @@ contextBridge.exposeInMainWorld('lennart', {
   historyQuery: (opts) => ipcRenderer.invoke('history:query', opts),
   historyClear: () => ipcRenderer.invoke('history:clear'),
 
+  // GitHub updates (portable Windows build)
+  checkForUpdates: () => ipcRenderer.invoke('update:check'),
+  downloadUpdate: () => ipcRenderer.invoke('update:download'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  updateStatus: () => ipcRenderer.invoke('update:status'),
+  pendingUpdate: () => ipcRenderer.invoke('update:pending'),
+  onUpdateProgress: (cb) => subscribe('update:progress', cb),
+
   // misc
   getPaths: () => ipcRenderer.invoke('app:getPaths'),
   revealSettingsFile: () => ipcRenderer.invoke('app:revealSettingFile'),

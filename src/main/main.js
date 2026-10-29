@@ -20,6 +20,7 @@ const { AgentSession } = require('./agent');
 const { LocalAI, LOCAL_MODEL } = require('./localai');
 const { RemoteRunner, sshSetupCommand } = require('./remote');
 const { HistoryStore } = require('./history');
+const { Updater } = require('./updater');
 
 // Never let Chromium background the terminal: when another window fully
 // covers Lennart Terminal the page flips to visibilityState "hidden", which
@@ -33,6 +34,21 @@ const settings = new SettingsStore();
 const ptyManager = new TerminalManager();
 
 let mainWindow = null;
+
+// GitHub updater for the portable Windows builds. The main process owns all
+// network/install work; the renderer only receives a sanitised status object.
+const updater = new Updater({
+  currentVersion: app.getVersion(),
+  dataDir: settings.dataDir,
+  isPackaged: app.isPackaged,
+  portableExe: process.env.PORTABLE_EXECUTABLE_FILE || '',
+  log: logDiag,
+  onProgress: (progress) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update:progress', progress);
+    }
+  },
+});
 const activeChats = new Map();          // chat id -> AbortController
 const terminalInput = new Map();        // PTY id -> line buffer for typed-command history
 
@@ -759,7 +775,22 @@ ipcMain.handle('agent:start', async (_e, { sessionId, job }) => {
   });
 
   agentSessions.set(id, session);
-  session.run().finally(() => agentSessions.delete(id));
+  // Start after the IPC reply so the renderer knows the id before events arrive.
+  setTimeout(async () => {
+    try {
+      const result = await session.run();
+      if (!result.ok && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('agent:event', { id, event: { type: 'finished' } });
+      }
+    } catch (err) {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('agent:event', { id, event: { type: 'error', text: String(err.message || err) } });
+        mainWindow.webContents.send('agent:event', { id, event: { type: 'finished' } });
+      }
+    } finally {
+      agentSessions.delete(id);
+    }
+  }, 0);
   return { ok: true, id };
 });
 
@@ -854,6 +885,7 @@ ipcMain.handle('app:getPaths', () => ({
   temp: os.tmpdir(),
   version: app.getVersion(),
   platform: process.platform,
+  updateSupported: process.platform === 'win32',
 }));
 
 ipcMain.handle('app:openPath', async (_e, target) => {
@@ -872,6 +904,19 @@ ipcMain.handle('app:openPath', async (_e, target) => {
 ipcMain.handle('app:revealSettingFile', async () => {
   await shell.showItemInFolder(settings.file);
   return { ok: true };
+});
+
+ipcMain.handle('update:check', () => updater.check());
+ipcMain.handle('update:status', () => updater.getStatus());
+ipcMain.handle('update:pending', () => updater.takePending());
+ipcMain.handle('update:download', () => updater.download());
+ipcMain.handle('update:install', async () => {
+  const result = await updater.install();
+  // Give the renderer time to paint "Genstarter…" before the window closes.
+  // The detached PowerShell helper waits for this PID, swaps the EXE and
+  // starts the new build once Windows has released the old file.
+  if (result.ok) setTimeout(() => app.quit(), 900);
+  return result;
 });
 
 ipcMain.on('app:devtools', () => {

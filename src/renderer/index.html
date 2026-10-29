@@ -19,11 +19,11 @@
       <span class="logo-dot"></span> Lennart Terminal
     </div>
     <div class="titlebar-actions">
-      <button id="btn-history" class="tb-btn" title="Historik (Ctrl+H)">&#128218;</button>
-      <button id="btn-settings" class="tb-btn" title="Indstillinger (Ctrl+,)">&#9881;</button>
-      <button id="btn-minimize" class="tb-btn" title="Minimér">&#8211;</button>
-      <button id="btn-maximize" class="tb-btn" title="Maksimér">&#9633;</button>
-      <button id="btn-close" class="tb-btn tb-close" title="Luk">&#10005;</button>
+      <button id="btn-history" class="tb-btn" title="Historik (Ctrl+H)" aria-label="Historik">&#128218;</button>
+      <button id="btn-settings" class="tb-btn" title="Indstillinger (Ctrl+,)" aria-label="Indstillinger">&#9881;</button>
+      <button id="btn-minimize" class="tb-btn" title="Minimér" aria-label="Minimér">&#8211;</button>
+      <button id="btn-maximize" class="tb-btn" title="Maksimér" aria-label="Maksimér">&#9633;</button>
+      <button id="btn-close" class="tb-btn tb-close" title="Luk" aria-label="Luk">&#10005;</button>
     </div>
   </div>
 
@@ -60,7 +60,7 @@
                 title="Fjernsupport p&#229; LAN&#10;• Krav: begge PC'er p&#229; samme netv&#230;rk&#10;• SSH: sl&#229; til p&#229; m&#229;l-PC'en (Opsætning → “Sl&#229; SSH til” som admin) — eller WinRM: Enable-PSRemoting -Force&#10;• Tilf&#248;j v&#230;rt med brugernavn/adgangskode — eller skriv blot en IP her og tryk Forbind&#10;• Kommandoer i fjern-fanen k&#248;res p&#229; fjernv&#230;rten">i</span>
         </div>
         <div class="quick-connect">
-          <input id="quick-host-ip" type="text" spellcheck="false" placeholder="IP, fx 192.168.1.50" />
+          <input id="quick-host-ip" type="text" spellcheck="false" aria-label="Værtens IP eller navn" placeholder="IP, fx 192.168.1.50" />
           <button id="btn-quick-connect" title="Forbind til en PC p&#229; LAN'et og k&#248;r kommandoer p&#229; den">Forbind</button>
         </div>
         <div id="host-list" class="host-list"></div>
@@ -92,7 +92,7 @@
       <!-- Tab strip -->
       <div id="tabstrip">
         <div id="tabs"></div>
-        <button id="btn-new-tab-inline" title="Ny fane">+</button>
+        <button id="btn-new-tab-inline" title="Ny fane" aria-label="Ny fane">+</button>
         <button id="btn-copy-term" title="Kopiér markeret tekst i terminalen (eller Ctrl+Shift+C / højreklik)">&#10697; Kopiér</button>
       </div>
 
@@ -128,7 +128,7 @@
           <div id="ai-messages"></div>
           <div id="ai-suggestions"></div>
           <form id="ai-composer">
-            <textarea id="ai-input" rows="2" placeholder="Spørg AI-en … (Enter = send · skriv /help for hjælp og fejlsøgning)"></textarea>
+            <textarea id="ai-input" rows="2" aria-label="Besked til AI" placeholder="Spørg AI-en … (Enter = send · skriv /help for hjælp og fejlsøgning)"></textarea>
             <div class="ai-composer-row">
               <button type="button" id="btn-send-terminal" title="Send seneste terminaloutput som kontekst">Vedhæft seneste output</button>
               <span class="spacer"></span>
@@ -143,14 +143,14 @@
 
   <!-- ============ History dialog ============ -->
   <div id="history-overlay" class="hidden">
-    <div id="history-dialog" role="dialog" aria-modal="true">
+    <div id="history-dialog" role="dialog" aria-modal="true" aria-labelledby="history-title">
       <header>
-        <h2>Historik — alt der er sket</h2>
-        <button id="btn-close-history" class="tb-btn" title="Luk">&#10005;</button>
+        <h2 id="history-title">Historik — alt der er sket</h2>
+        <button id="btn-close-history" class="tb-btn" title="Luk" aria-label="Luk historik">&#10005;</button>
       </header>
       <div class="history-toolbar">
-        <input id="history-search" type="text" placeholder="Søg i kommandoer, output og AI-svar…" />
-        <select id="history-type">
+        <input id="history-search" type="text" aria-label="Søg i historik" placeholder="Søg i kommandoer, output og AI-svar…" />
+        <select id="history-type" aria-label="Filtrér historik efter type">
           <option value="">Alle</option>
           <option value="local">Lokalt</option>
           <option value="remote">Netværk</option>
@@ -165,10 +165,10 @@
 
   <!-- ============ Settings dialog ============ -->
   <div id="settings-overlay" class="hidden">
-    <div id="settings-dialog" role="dialog" aria-modal="true">
+    <div id="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <header>
-        <h2>Indstillinger</h2>
-        <button id="btn-close-settings" class="tb-btn" title="Luk">&#10005;</button>
+        <h2 id="settings-title">Indstillinger</h2>
+        <button id="btn-close-settings" class="tb-btn" title="Luk" aria-label="Luk indstillinger">&#10005;</button>
       </header>
 
       <div class="settings-body">
@@ -356,9 +356,16 @@
         <section id="sec-about" class="settings-meta">
           <h3>Om</h3>
           <div id="settings-paths" class="mono small"></div>
+          <div class="update-about">
+            <div class="update-about-text">
+              <b>Version <span id="about-version">…</span></b>
+              <span id="about-update-status" class="small">Tjek GitHub for en ny version.</span>
+            </div>
+            <button id="btn-check-updates" type="button">Søg efter opdatering</button>
+          </div>
           <div class="row gap">
             <button id="btn-open-settings-file" type="button">Åbn settings.json</button>
-            <button id="btn-open-actions" type="button" title="github.com/h4xtor/Lennarts-Terminal/actions">GitHub Actions (CI)</button>
+            <button id="btn-open-actions" type="button" title="github.com/h4xtor/Lennart-Terminal/actions">GitHub Actions (CI)</button>
             <button id="btn-reset-settings" type="button" class="danger">Nulstil alle indstillinger</button>
           </div>
         </section>
@@ -372,12 +379,69 @@
     </div>
   </div>
 
+  <!-- ============ Update dialog ============ -->
+  <div id="update-overlay" class="hidden">
+    <div id="update-dialog" role="dialog" aria-modal="true" aria-labelledby="update-title">
+      <header>
+        <h2 id="update-title">Opdatering</h2>
+        <button id="btn-close-update" class="tb-btn" title="Luk" aria-label="Luk opdatering">&#10005;</button>
+      </header>
+      <div class="update-body">
+        <div class="update-hero">
+          <div class="update-orbit" aria-hidden="true">&#8635;</div>
+          <div class="update-hero-text">
+            <div class="update-current">Du k&#248;rer <b id="update-current-version">v&#8230;</b></div>
+            <div id="update-status" class="update-status">Tjek GitHub for at se, om der er en ny version.</div>
+          </div>
+        </div>
+
+        <div id="update-pending" class="update-pending hidden">
+          <div class="update-pending-mark">&#10003;</div>
+          <div class="update-pending-text">
+            <div class="update-pending-title">Opdateringen er gennemf&#248;rt</div>
+            <div id="update-pending-meta" class="small"></div>
+            <ul id="update-pending-changes" class="update-changes compact"></ul>
+          </div>
+        </div>
+
+        <div id="update-card" class="update-card hidden">
+          <div class="update-card-head">
+            <div>
+              <div class="update-new">Ny version <span id="update-version">v&#8230;</span></div>
+              <div id="update-meta" class="small"></div>
+            </div>
+            <span class="update-verified" title="Downloadet kontrolleres med SHA-256, f&#248;r det installeres">SHA-256</span>
+          </div>
+          <div class="update-changes-label">Hvad er nyt</div>
+          <ul id="update-changes" class="update-changes"></ul>
+          <div id="update-mode-note" class="update-mode-note"></div>
+        </div>
+
+        <div id="update-progress" class="update-progress hidden">
+          <div class="update-progress-head">
+            <span id="update-progress-label">Henter&#8230;</span>
+            <span id="update-progress-percent" class="mono">0 %</span>
+          </div>
+          <div class="update-progress-track"><div id="update-bar" class="update-progress-fill"></div></div>
+          <div id="update-progress-note" class="small">Downloadet kontrolleres med SHA-256, f&#248;r det installeres.</div>
+        </div>
+      </div>
+      <footer>
+        <button id="btn-update-github" class="link-btn" type="button">&#197;bn release p&#229; GitHub</button>
+        <span class="spacer"></span>
+        <button id="btn-update-later" type="button">Luk</button>
+        <button id="btn-update-check" type="button">S&#248;g efter opdatering</button>
+        <button id="btn-update-install" class="primary hidden" type="button">Download og installer</button>
+      </footer>
+    </div>
+  </div>
+
   <!-- ============ Host (add/edit) dialog ============ -->
   <div id="host-overlay" class="hidden">
-    <div id="host-dialog" role="dialog" aria-modal="true">
+    <div id="host-dialog" role="dialog" aria-modal="true" aria-labelledby="host-dialog-title">
       <header>
         <h2 id="host-dialog-title">Tilføj vært</h2>
-        <button id="btn-host-cancel" class="tb-btn" title="Annullér">&#10005;</button>
+        <button id="btn-host-cancel" class="tb-btn" title="Annullér" aria-label="Annullér">&#10005;</button>
       </header>
       <div class="settings-body">
         <label class="field"><span>Navn</span><input id="host-name" type="text" placeholder="fx Router-01 eller Gaming-PC 3" /></label>
@@ -411,6 +475,7 @@
   <script src="js/ai.js"></script>
   <script src="js/history.js"></script>
   <script src="js/settings.js"></script>
+  <script src="js/update.js"></script>
   <script src="js/commands.js"></script>
   <script src="js/app.js"></script>
 </body>

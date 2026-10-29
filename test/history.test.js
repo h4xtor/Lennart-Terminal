@@ -46,6 +46,8 @@ async function testRotation(tmp) {
   assert.ok(rows.length <= 10, 'no duplicates across generations');
   const newest = rows.find((r) => r.command.startsWith('command number 9'));
   assert.ok(newest, 'newest record survives rotation');
+  assert.ok(rows[0].command.startsWith('command number 9'), 'current file appears before rotated history');
+  assert.ok(h.query({ limit: 1 })[0].command.startsWith('command number 9'), 'limit returns the newest record');
   console.log(`PASS rotation (${rows.length} records across 2 files)`);
 }
 

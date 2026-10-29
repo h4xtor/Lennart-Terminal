@@ -55,6 +55,23 @@ async function main() {
   assert.strictEqual(manual.result.ok, true);
   console.log('PASS agent auto-approve setting');
 
+  let runs = 0;
+  const stopped = new AgentSession({
+    id: 'agent_stop', job: 'test stop', settings: {},
+    deps: {
+      emit: () => {},
+      run: async () => { runs += 1; return 'ok'; },
+      confirm: async () => { stopped.abort(); return true; },
+      log: () => {},
+    },
+  });
+  stopped.askModel = async () => ({ done: false, command: 'Remove-Item C:/temp/x -Force' });
+  const stopResult = await stopped.run();
+  assert.strictEqual(stopResult.aborted, true);
+  assert.strictEqual(runs, 0, 'stop under bekræftelsen må ikke køre kommandoen');
+  assert.strictEqual(stopped.abortController.signal.aborted, true);
+  console.log('PASS stop before approved command');
+
   console.log('ALL AGENT TESTS PASSED');
 }
 

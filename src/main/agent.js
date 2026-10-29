@@ -75,11 +75,13 @@ class AgentSession {
     this.settings = settings || {};
     this.deps = deps;                // { emit, run, confirm, log }
     this.aborted = false;
+    this.abortController = new AbortController();
     this.stepCount = 0;
   }
 
   abort() {
     this.aborted = true;
+    this.abortController.abort();
   }
 
   async run() {
@@ -97,6 +99,7 @@ class AgentSession {
       try {
         decision = useAgy ? await this.askAgy(history) : await this.askModel(history, cfg);
       } catch (err) {
+        if (this.aborted) return { ok: false, aborted: true };
         emit({ type: 'error', text: String(err.message || err) });
         return { ok: false, error: String(err.message || err) };
       }
@@ -135,6 +138,9 @@ class AgentSession {
         }
       }
 
+      // A stop while a confirmation dialog was open must not run the command.
+      if (this.aborted) return { ok: false, aborted: true };
+
       // ---- run ----
       emit({ type: 'command', text: cmd, thought: decision.thought });
       this.stepCount += 1;
@@ -169,6 +175,7 @@ class AgentSession {
     let raw = '';
     await chat(cfg, [{ role: 'user', content: userContent }], {
       system: PLAN_INSTRUCTION,
+      signal: this.abortController.signal,
       onToken: (t) => { raw += t; },
     });
     return parseDecision(raw);
@@ -183,7 +190,10 @@ class AgentSession {
       '',
       'Reply with ONLY the JSON object for the next step.',
     ].join('\n');
-    const res = await runAgyAgent({ prompt, onEvent: null, model: this.aiConfig.model || undefined });
+    const res = await runAgyAgent({
+      prompt, onEvent: null, model: this.aiConfig.model || undefined,
+      allowTools: false, signal: this.abortController.signal,
+    });
     return parseDecision(res.text || '');
   }
 }

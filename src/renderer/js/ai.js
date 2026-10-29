@@ -13,6 +13,8 @@ const aiState = {
   mode: 'chat',           // 'chat' | 'agent'
   agentRunning: false,
   agentId: null,
+  agentEventsBeforeStart: [],
+  agentStopRequested: false,
   stickToBottom: true,    // auto-scroll while the user is at the bottom
 };
 
@@ -70,8 +72,11 @@ function initAiPanel() {
   });
 
   window.lennart.onAgentEvent(({ id, event }) => {
-    if (id !== aiState.agentId) return;
-    renderAgentEvent(event);
+    if (aiState.agentRunning && !aiState.agentId) {
+      aiState.agentEventsBeforeStart.push({ id, event });
+      return;
+    }
+    if (id === aiState.agentId) renderAgentEvent(event);
   });
 
   setMode('chat');
@@ -273,6 +278,8 @@ function startAgentJob(job) {
   }
   aiEls.input.value = '';
   aiState.agentRunning = true;
+  aiState.agentEventsBeforeStart = [];
+  aiState.agentStopRequested = false;
   aiEls.sendBtn.disabled = true;
   aiEls.stopBtn.hidden = false;
   aiEls.suggestions.innerHTML = '';
@@ -286,6 +293,15 @@ function startAgentJob(job) {
       return;
     }
     aiState.agentId = res.id;
+    if (aiState.agentStopRequested) window.lennart.agentStop(res.id);
+    const pending = aiState.agentEventsBeforeStart;
+    aiState.agentEventsBeforeStart = [];
+    for (const item of pending) {
+      if (item.id === aiState.agentId) renderAgentEvent(item.event);
+    }
+  }).catch((err) => {
+    agentFinished();
+    appendMessageEl('error', `Agent kunne ikke starte: ${err.message || err}`);
   });
 }
 
@@ -309,21 +325,27 @@ function renderAgentEvent(ev) {
   } else if (ev.type === 'done') {
     agentFinished();
     if (ev.text) appendMessageEl('assistant', ev.text);
+  } else if (ev.type === 'finished') {
+    agentFinished();
   }
 }
 
 function agentFinished() {
   aiState.agentRunning = false;
   aiState.agentId = null;
+  aiState.agentEventsBeforeStart = [];
+  aiState.agentStopRequested = false;
   aiEls.sendBtn.disabled = false;
+  aiEls.stopBtn.disabled = false;
   aiEls.stopBtn.hidden = true;
 }
 
 function onStopClicked() {
-  if (aiState.mode === 'agent' && aiState.agentId) {
-    window.lennart.agentStop(aiState.agentId);
-    appendStatus('Agent stoppet af bruger.');
-    agentFinished();
+  if (aiState.agentRunning) {
+    aiState.agentStopRequested = true;
+    if (aiState.agentId) window.lennart.agentStop(aiState.agentId);
+    aiEls.stopBtn.disabled = true;
+    appendStatus('Stopper agenten. En kommando, der allerede kører, kan fortsætte i terminalen.');
   } else if (aiState.currentId) {
     window.lennart.cancelChat(aiState.currentId);
   }
@@ -525,7 +547,7 @@ function wireCodeBlockActions(scope) {
 
 async function runAiCommand(cmd) {
   const tab = activeTab();
-  if (!tab || !tab.sessionId) {
+  if (!tab || tab.dead || (!tab.remote && !tab.sessionId)) {
     appendMessageEl('error', 'Ingen aktiv terminalsession.');
     return;
   }
@@ -537,7 +559,11 @@ async function runAiCommand(cmd) {
       return;
     }
   }
-  tab.runCommand(cmd);
+  if (tab.dead) {
+    appendMessageEl('error', 'Terminalfanen blev lukket — kommandoen blev ikke kørt.');
+    return;
+  }
+  await tab.runCommand(cmd);
 }
 
 // ---------------------------------------------------------------------------
@@ -587,7 +613,7 @@ function maybeAutoRunFromAnswer(answer) {
     } else {
       appendStatus(`🤖 Kører i terminalen: ${cmd}`);
     }
-    runAiCommand(cmd);
+    runAiCommand(cmd).catch((err) => appendStatus(`Auto-kør fejlede: ${err.message || err}`, true));
   } catch (err) {
     appendStatus(`Auto-kør fejlede: ${err.message || err}`, true);
   }

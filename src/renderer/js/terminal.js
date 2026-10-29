@@ -433,10 +433,17 @@ function createRemoteTab(host) {
     }
     tab.busy = true;
     tab.xterm.writeln(`\x1b[38;5;141mPS ${host.host}> ${cmd}\x1b[0m`);
-    const res = await window.lennart.remoteRun({ hostId: host.id, command: cmd, tabId: tab.tabId });
-    if (res && res.timedOut) tab.xterm.writeln(`\x1b[33m[tidsudløb — kommandoen svarede ikke i tide]\x1b[0m`);
-    tab.xterm.write('\r\n');
-    tab.busy = false;
+    try {
+      const res = await window.lennart.remoteRun({ hostId: host.id, command: cmd, tabId: tab.tabId });
+      if (tab.dead) return;
+      if (res && res.timedOut) tab.xterm.writeln(`\x1b[33m[tidsudløb — kommandoen svarede ikke i tide]\x1b[0m`);
+      else if (res && !res.ok && res.output === 'Ukendt vært') tab.xterm.writeln(`\x1b[31m[${res.output}]\x1b[0m`);
+      tab.xterm.write('\r\n');
+    } catch (err) {
+      if (!tab.dead) tab.xterm.writeln(`\x1b[31m[Kunne ikke køre fjernkommando: ${String(err.message || err)}]\x1b[0m`);
+    } finally {
+      tab.busy = false;
+    }
   };
   tab.fit = () => { try { tab.fitAddon.fit(); } catch { /* hidden */ } };
   tab.destroy = () => {

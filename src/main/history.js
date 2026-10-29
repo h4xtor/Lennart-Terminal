@@ -53,7 +53,9 @@ class HistoryStore {
     const limit = Math.min(o.limit || 200, 1000);
     let lines = [];
     try {
-      const files = [this.file, this.file + '.1'].filter((f) => fs.existsSync(f));
+      // Read oldest generation first; reversing the combined lines below then
+      // returns the current file's newest entries before the rotated ones.
+      const files = [this.file + '.1', this.file].filter((f) => fs.existsSync(f));
       for (const f of files) {
         const raw = fs.readFileSync(f, 'utf8');
         lines = lines.concat(raw.split('\n').filter(Boolean));

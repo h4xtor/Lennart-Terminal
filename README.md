@@ -2,7 +2,7 @@
 
 An AI-inspired terminal for Windows with an integrated **AI agent** — chat with your terminal, or let the AI take over and run a whole job for you.
 
-[![CI](https://github.com/h4xtor/Lennarts-Terminal/actions/workflows/ci.yml/badge.svg)](https://github.com/h4xtor/Lennarts-Terminal/actions/workflows/ci.yml) ![platform](https://img.shields.io/badge/platform-Windows-blue) ![license](https://img.shields.io/badge/license-MIT-green)
+[![CI](https://github.com/h4xtor/Lennart-Terminal/actions/workflows/ci.yml/badge.svg)](https://github.com/h4xtor/Lennart-Terminal/actions/workflows/ci.yml) ![platform](https://img.shields.io/badge/platform-Windows-blue) ![license](https://img.shields.io/badge/license-MIT-green)
 
 ## Features
 
@@ -19,22 +19,34 @@ An AI-inspired terminal for Windows with an integrated **AI agent** — chat wit
 
 ## Quick start
 
-### Option A — portable zip (nothing to install)
+### Option A — portable EXE or zip (nothing to install)
 
-Grab `LennartTerminal-portable-*.zip` from the [latest release](https://github.com/h4xtor/Lennarts-Terminal/releases/latest), unzip it anywhere (USB stick works) and double-click `start-lennart-terminal.cmd`. No Node.js, no installer.
+Grab **`LennartTerminal-portable.exe`** or **`LennartTerminal-win-x64.zip`** from the [latest release](https://github.com/h4xtor/Lennart-Terminal/releases/latest). The single EXE needs no installer and keeps its `Data` folder next to itself, so it works from a USB stick; the zip starts a little faster.
 
-The built-in offline AI downloads its engine + model (~1 GB) on first use — or ships **inside the release zip** when bundled, fully offline from minute one.
+Every release also ships `SHA256SUMS.txt`, so a download can be verified with `Get-FileHash .\LennartTerminal-portable.exe`. The built-in offline AI downloads its engine + model (~1 GB) on first use — or ships inside the release when bundled, fully offline from minute one.
 
 ### Option B — run from source
 
 Install [Node.js](https://nodejs.org) (LTS), then:
 
 ```cmd
-git clone https://github.com/h4xtor/Lennarts-Terminal.git
-cd Lennarts-Terminal
+git clone https://github.com/h4xtor/Lennart-Terminal.git
+cd Lennart-Terminal
 npm install
 npm start
 ```
+
+## Opdatering
+
+Klik på det gyldne **versionsmærke** nederst til højre (eller **Indstillinger → Om → Søg efter opdatering**). Appen spørger GitHub Releases, viser hvad der er nyt siden din version, henter den portable `.exe` og kontrollerer dens SHA-256, før den installerer.
+
+- **Portable build:** den kørende `.exe` erstattes på samme sted, og den nye version åbner automatisk. Den gamle fil gemmes som `.old`, så den kan gendannes ved problemer; flyt eller slet sikkerhedskopien selv, før du opdaterer igen.
+- **Kildekode/udvikling:** den nye version lægges i `%LOCALAPPDATA%\Lennart Terminal` og åbner automatisk. Din kildekode og dit nuværende miljø røres ikke.
+- **Efter genstart** vises en engangsoversigt med, hvad der blev opdateret, og hvilke ændringer der kom med.
+
+Første opdatering fra en ældre build (f.eks. v0.2.0 → v0.4.2) kan ikke vise efter-oversigten *inde i den nye version*, fordi den pågældende release blev bygget før funktionen fandtes. Markøren gemmes, så en v0.4.2-build der selv indeholder updateren kan vise den; en nyere version ignorerer den som forældet. Selve download, kontrolsum og installation virker fra første gang.
+
+Releasen skal indeholde en `*-portable.exe` og `SHA256SUMS.txt` — det gør de officielle releases. EXE-filen er ikke codesigned endnu; Windows kan derfor vise "Windows protected your PC" første gang.
 
 ## USB-stick mode (portable)
 
@@ -150,7 +162,7 @@ npm test        :: offline AI-layer tests (no provider needed)
 
 Double-click **`test-lennart.cmd`** to run the syntax check, the automated tests and a real UI smoke test. It starts the app in a temporary profile, so your settings, history and the embedded AI model are untouched. A small local stub answers the AI endpoint, which means **no internet and no ~1 GB model download** are needed.
 
-The UI test checks the Danish labels, that a command typed directly in the terminal lands in the history, that the bottom prompt box still records commands, that the agent settings are remembered, and that a new tab inherits the selected theme. It needs Node.js 22+ and `npm ci`.
+The UI test checks the Danish labels, that a command typed directly in the terminal lands in the history, that the bottom prompt box still records commands, that the agent settings are remembered, that a new tab inherits the selected theme, and that the update dialog shows a new GitHub release (against a local stub). It needs Node.js 22+ and `npm ci`.
 
 Run only the UI smoke test (without the two other gates):
 
@@ -158,15 +170,15 @@ Run only the UI smoke test (without the two other gates):
 npm run smoke
 ```
 
-Releases are automated: push a tag (`git tag v0.2.0 && git push origin v0.2.0`) and GitHub Actions builds the portable zip and publishes the release. The workflow runs are public: [github.com/h4xtor/Lennarts-Terminal/actions](https://github.com/h4xtor/Lennarts-Terminal/actions).
+Releases are automated on `main`: a version change in `package.json` (or a `v*` tag) makes GitHub Actions build the portable `.exe` and zip, write `SHA256SUMS.txt` and publish the release. The workflow runs are public: [github.com/h4xtor/Lennart-Terminal/actions](https://github.com/h4xtor/Lennart-Terminal/actions).
 
 ## Project layout
 
 ```
-src/main/       Electron main process (window, PTY manager, settings store, AI clients, agent engine)
+src/main/       Electron main process (window, PTY manager, settings store, AI clients, agent engine, GitHub updater)
 src/preload/    Context-isolated IPC bridge
-src/renderer/   Warp-style UI (xterm.js tabs, AI panel, settings dialog)
-test/           Offline AI-layer tests (mock Ollama + OpenAI + Anthropic servers)
+src/renderer/   Warp-style UI (xterm.js tabs, AI panel, settings dialog, update dialog)
+test/           Offline AI-layer and updater tests (mock providers + local GitHub stub)
 tools/          Portable Node.js runtime for dev (not committed)
 ```
 

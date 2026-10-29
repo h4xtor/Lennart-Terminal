@@ -222,7 +222,11 @@ async function listModels(cfg, { timeout = 6000 } = {}) {
     try {
       const res = await fetch(`${baseUrl}/models`, { signal, headers });
       if (!res.ok) {
-        // Older accounts/keys may not expose /models — fall back to known line-up
+        // Authentication and server errors must not be presented as a healthy
+        // connection. Only an unsupported models endpoint gets the fallback.
+        if (res.status !== 404 && res.status !== 405) {
+          throw new Error(`Anthropic ${res.status} ${res.statusText}`);
+        }
         const known = [
           'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5',
           'claude-opus-4-1', 'claude-sonnet-4-0', 'claude-3-7-sonnet-latest', 'claude-3-5-haiku-latest',

@@ -50,10 +50,6 @@ async function bootApp() {
     });
   }
 
-  // History button lives in the titlebar next to settings
-  const histBtn = document.getElementById('btn-history');
-  if (histBtn) histBtn.addEventListener('click', openHistory);
-
   const promptInput = document.getElementById('prompt-input');
   // Bottom hint ("Ask AI (Ctrl+Enter) or type a command…") shows while empty
   const promptHint = document.getElementById('prompt-hint');
@@ -87,6 +83,7 @@ async function bootApp() {
   initLocalAIToast();
   initQuickTroubleshooting();
   initMenubar();
+  initUpdateUI();
   initQuickConnect();
   // Disable shells that are not installed (e.g. PowerShell 7 without pwsh)
   try {
@@ -229,13 +226,26 @@ function initMenubar() {
   const spacer = document.createElement('span');
   spacer.className = 'menubar-spacer';
   bar.appendChild(spacer);
-  const tag = document.createElement('span');
+  const tag = document.createElement('button');
   tag.id = 'version-tag';
-  tag.title = 'Lennart Terminal — CI: github.com/h4xtor/Lennarts-Terminal/actions';
+  tag.type = 'button';
+  tag.title = 'Version — klik for at søge efter opdatering';
+  tag.setAttribute('aria-label', 'Version og opdatering');
   tag.textContent = 'v0.2.0';
+  tag.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeAllMenus();
+    if (typeof openUpdateDialog === 'function') openUpdateDialog(true);
+  });
   bar.appendChild(tag);
   window.lennart.getPaths()
-    .then((p) => { if (p && p.version) tag.textContent = `v${p.version}`; })
+    .then((p) => {
+      if (p && p.version) {
+        window.__lennartVersion = p.version;
+        tag.textContent = `v${p.version}`;
+        tag.title = `Version ${p.version} — klik for at søge efter opdatering`;
+      }
+    })
     .catch(() => { /* keep the static fallback */ });
 
   document.addEventListener('click', closeAllMenus);
@@ -311,7 +321,11 @@ async function runMenuAction(action) {
       if (document.getElementById('set-provider')?.value) await refreshModelList();
       break;
     case 'github-actions':
-      window.lennart.openExternal('https://github.com/h4xtor/Lennarts-Terminal/actions');
+      window.lennart.openExternal('https://github.com/h4xtor/Lennart-Terminal/actions');
+      break;
+    case 'check-updates':
+      closeAllMenus();
+      openUpdateDialog(true);
       break;
     case 'run-as-admin': {
       const ok = window.confirm('Genstart Lennart Terminal som administrator (UAC)?\n\nAlle kommandoer og faner køres derefter med administrator-rettigheder.');
@@ -320,7 +334,10 @@ async function runMenuAction(action) {
     }
     case 'about': {
       const p = await window.lennart.getPaths();
-      window.alert(`Lennart Terminal v${p.version} · ${p.platform}\n\nGitHub (CI): https://github.com/h4xtor/Lennarts-Terminal/actions\n\nIndbygget offline-AI, 20 netværksknapper, 10 dropdown-menuer, fjernstyring via SSH/WinRM.`);
+      const text = `Lennart Terminal v${p.version} · ${p.platform}\n\n` +
+        'GitHub: https://github.com/h4xtor/Lennart-Terminal\n\n' +
+        'Vil du søge efter en ny version nu?';
+      if (window.confirm(text)) openUpdateDialog(true);
       break;
     }
     default:
@@ -483,7 +500,7 @@ function wireSettingsEvents() {
       accent: document.getElementById('set-accent').value,
     }));
   document.getElementById('btn-open-actions')?.addEventListener('click', () =>
-    window.lennart.openExternal('https://github.com/h4xtor/Lennarts-Terminal/actions'));
+    window.lennart.openExternal('https://github.com/h4xtor/Lennart-Terminal/actions'));
   // Section nav chips in the settings dialog
   document.querySelectorAll('#set-nav button').forEach((b) => {
     b.addEventListener('click', () => {
@@ -507,6 +524,10 @@ function wireSettingsEvents() {
   document.getElementById('btn-save-settings').addEventListener('click', saveSettings);
   document.getElementById('btn-open-settings-file').addEventListener('click', () => {
     window.lennart.revealSettingsFile();
+  });
+  document.getElementById('btn-check-updates')?.addEventListener('click', () => {
+    closeSettings();
+    openUpdateDialog(true);
   });
   document.getElementById('btn-reset-settings').addEventListener('click', async () => {
     if (!window.confirm('Nulstil alle indstillinger til standard?')) return;
@@ -575,6 +596,8 @@ window.addEventListener('keydown', (e) => {
 
 bootApp().catch((err) => {
   window.lennart?.log(`bootApp failed: ${err.stack || err}`);
-  document.body.innerHTML =
-    `<pre style="color:#f87171;padding:20px;white-space:pre-wrap">Lennart Terminal kunne ikke starte:\n${err.stack || err}</pre>`;
+  const message = document.createElement('pre');
+  message.style.cssText = 'color:#f87171;padding:20px;white-space:pre-wrap';
+  message.textContent = `Lennart Terminal kunne ikke starte:\n${err.stack || err}`;
+  document.body.replaceChildren(message);
 });

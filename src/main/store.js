@@ -17,7 +17,7 @@ const path = require('path');
 const KNOWN_PROVIDERS = new Set([
   'lennart-local',
   'antigravity-cli',
-  'ollama', 'lmstudio', 'openai-compatible',
+  'ollama', 'lmstudio', 'llamacpp', 'openai-compatible',
   'openrouter', 'omniroute', 'openai', 'anthropic', 'gemini', 'dashscope', 'moonshot',
 ]);
 

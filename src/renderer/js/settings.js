@@ -50,8 +50,13 @@ async function loadSettingsUi() {
   updateAgyFieldVisibility();
 
   const paths = await window.lennart.getPaths();
+  window.__lennartVersion = paths.version;
   document.getElementById('settings-paths').textContent =
     `Indstillinger: ${paths.settingsFile}\nVersion: v${paths.version} · ${paths.platform}`;
+  const aboutVersion = document.getElementById('about-version');
+  if (aboutVersion) aboutVersion.textContent = `v${paths.version}`;
+  const aboutStatus = document.getElementById('about-update-status');
+  if (aboutStatus) aboutStatus.textContent = `Du kører v${paths.version}.`;
 }
 
 function fillProviderSelect() {
@@ -176,9 +181,8 @@ async function refreshModelList() {
   };
 
   sel.innerHTML = '<option value="">henter…</option>';
-  const res = cfg.baseUrl
-    ? await window.lennart.listModels(cfg)
-    : { ok: false, error: 'Intet endpoint konfigureret' };
+  // The main process resolves an empty override to the provider's default URL.
+  const res = await window.lennart.listModels(cfg);
 
   sel.innerHTML = '';
   if (res.ok && res.models.length) {
@@ -260,7 +264,10 @@ async function renderModelPanel() {
   try {
     res = await window.lennart.localaiListModels();
   } catch (err) {
-    list.innerHTML = `<div class="mp-row">Kunne ikke hente listen: ${err.message || err}</div>`;
+    const row = document.createElement('div');
+    row.className = 'mp-row';
+    row.textContent = `Kunne ikke hente listen: ${err.message || err}`;
+    list.replaceChildren(row);
     return;
   }
   window.__localaiCatalog = res;
@@ -396,7 +403,7 @@ function collectSettingsPatch() {
       provider: pid,
       model: modelValue,
       baseUrl: document.getElementById('set-baseurl').value.trim(),
-      temperature: parseFloat(document.getElementById('set-temp').value) || 0.4,
+      temperature: Number(document.getElementById('set-temp').value),
       maxTokens: parseInt(document.getElementById('set-maxtokens').value, 10) || 0,
       topP: parseFloat(document.getElementById('set-topp').value) || 1,
     },
