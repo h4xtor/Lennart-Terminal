@@ -628,7 +628,39 @@ async function main() {
     await waitForExpr(cdp, "!document.body.classList.contains('theme-lys')", 10000, 'standardtema');
     await cdp.evaluate('closeSettings(); true');
 
-    // ---- 7. no renderer errors ----
+    // ---- 7. remote tabs fill the pane ----
+    // Regression: activateTab() forced display:block on every tab, so a remote
+    // tab's flex column collapsed and left a black void below the terminal.
+    await cdp.evaluate(`(() => {
+      window.createRemoteTab({ id: 'smoke-remote', name: 'Smoke Remote', host: '127.0.0.1', method: 'ssh' });
+      return true;
+    })()`);
+    await sleep(700);
+    const remoteLayout = JSON.parse(await cdp.evaluate(`JSON.stringify((() => {
+      const tab = activeTab();
+      if (!tab || !tab.remote) return { remote: false };
+      const tr = tab.el.getBoundingClientRect();
+      const xr = tab.el.querySelector('.xterm').getBoundingClientRect();
+      const vr = tab.el.querySelector('.xterm-viewport').getBoundingClientRect();
+      return {
+        remote: true,
+        display: tab.el.style.display,
+        tabH: Math.round(tr.height),
+        xtermH: Math.round(xr.height),
+        viewportH: Math.round(vr.height)
+      };
+    })())`));
+    assert(remoteLayout.remote && remoteLayout.display === 'flex',
+      `fjern-fanen bruger flex-layout (${remoteLayout.display || 'ingen fane'})`);
+    assert(remoteLayout.xtermH >= remoteLayout.tabH - 60,
+      `fjern-terminalen fylder panelet (${remoteLayout.xtermH}/${remoteLayout.tabH})`);
+    assert(Math.abs(remoteLayout.viewportH - remoteLayout.xtermH) <= 2,
+      `viewporten fylder terminalen (${remoteLayout.viewportH}/${remoteLayout.xtermH})`);
+    pass('Fjern-fanen fylder hele panelet');
+    await cdp.evaluate('closeTab(activeTabId); true');
+    await waitForExpr(cdp, '!activeTab().remote', 5000, 'fjern-fane lukket');
+
+    // ---- 8. no renderer errors ----
     await sleep(800);
     assert(
       cdp.problems.length === 0,

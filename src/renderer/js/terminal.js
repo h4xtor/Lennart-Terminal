@@ -306,7 +306,10 @@ function activateTab(tabId) {
   activeTabId = tabId;
 
   for (const [id, t] of termTabs) {
-    t.el.style.display = id === tabId ? 'block' : 'none';
+    // Remote tabs are flex columns (banner + terminal); forcing `block` here
+    // left the terminal at its intrinsic height (408px) with a black void
+    // below it. Local tabs keep the plain block layout.
+    t.el.style.display = id === tabId ? (t.remote ? 'flex' : 'block') : 'none';
     t.tabEl?.classList.toggle('active', id === tabId);
   }
   // Give the DOM a tick to lay out before fitting
