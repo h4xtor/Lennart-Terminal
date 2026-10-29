@@ -38,7 +38,7 @@ async function loadSettingsUi() {
 
   // Model settings (ctx / threads / max tokens / top-p / auto-run) + colours
   const lai = currentSettings.localAI || {};
-  document.getElementById('set-ctx').value = String(lai.ctx || 4096);
+  document.getElementById('set-ctx').value = String(lai.ctx || 8192);
   document.getElementById('set-threads').value = String(lai.threads || 0);
   document.getElementById('set-maxtokens').value = String(currentSettings.ai.maxTokens ?? 0);
   document.getElementById('set-topp').value = currentSettings.ai.topP ?? 1;
@@ -398,12 +398,12 @@ function collectSettingsPatch() {
     return v.startsWith('catalog:') ? '' : v;
   })();
   return {
-
     ai: {
       provider: pid,
       model: modelValue,
       baseUrl: document.getElementById('set-baseurl').value.trim(),
-      temperature: Number(document.getElementById('set-temp').value),
+      // 0 is a valid temperature — "|| 0.4" silently turned it into 0.4
+      temperature: numberOr(document.getElementById('set-temp').value, 0.4),
       maxTokens: parseInt(document.getElementById('set-maxtokens').value, 10) || 0,
       topP: parseFloat(document.getElementById('set-topp').value) || 1,
     },
@@ -415,7 +415,7 @@ function collectSettingsPatch() {
       },
     },
     localAI: {
-      ctx: parseInt(document.getElementById('set-ctx').value, 10) || 4096,
+      ctx: parseInt(document.getElementById('set-ctx').value, 10) || 8192,
       threads: parseInt(document.getElementById('set-threads').value, 10) || 0,
     },
     theme: {
@@ -431,6 +431,11 @@ function collectSettingsPatch() {
     agentAutoApprove: document.getElementById('set-agent-autoapprove').checked,
     agyModel: document.getElementById('set-agy-model').value,
   };
+}
+
+function numberOr(value, fallback) {
+  const n = parseFloat(value);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 function updateToppLabel() {

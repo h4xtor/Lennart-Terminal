@@ -128,12 +128,14 @@
           <div id="ai-messages"></div>
           <div id="ai-suggestions"></div>
           <form id="ai-composer">
-            <textarea id="ai-input" rows="2" aria-label="Besked til AI" placeholder="Spørg AI-en … (Enter = send · skriv /help for hjælp og fejlsøgning)"></textarea>
-            <div class="ai-composer-row">
-              <button type="button" id="btn-send-terminal" title="Send seneste terminaloutput som kontekst">Vedhæft seneste output</button>
-              <span class="spacer"></span>
-              <button type="button" id="btn-ai-stop" title="Stop generering" hidden>Stop</button>
-              <button type="submit" id="btn-ai-send">Send</button>
+            <div class="composer-card">
+              <textarea id="ai-input" rows="2" placeholder="Spørg AI-en … (Enter = send · skriv /help for hjælp og fejlsøgning)"></textarea>
+              <div class="ai-composer-row">
+                <button type="button" id="btn-send-terminal" title="Vedhæft seneste terminaloutput som kontekst til dit spørgsmål">📎 Vedhæft output</button>
+                <span class="spacer"></span>
+                <button type="button" id="btn-ai-stop" title="Stop generering" hidden>■ Stop</button>
+                <button type="submit" id="btn-ai-send" title="Send til AI (Enter)">↑</button>
+              </div>
             </div>
           </form>
         </section>
@@ -230,8 +232,9 @@
               <span>Kontekst (tokens)</span>
               <select id="set-ctx">
                 <option value="2048">2048 — hurtig / svag PC</option>
-                <option value="4096" selected>4096 — standard</option>
-                <option value="8192">8192 — lange svar</option>
+                <option value="4096">4096 — kompakt</option>
+                <option value="8192" selected>8192 — standard</option>
+                <option value="16384">16384 — meget lang</option>
               </select>
             </label>
             <label class="field">
@@ -364,9 +367,9 @@
             <button id="btn-check-updates" type="button">Søg efter opdatering</button>
           </div>
           <div class="row gap">
-            <button id="btn-open-settings-file" type="button">Åbn settings.json</button>
+            <button id="btn-open-settings-file" type="button">Open settings.json</button>
             <button id="btn-open-actions" type="button" title="github.com/h4xtor/Lennart-Terminal/actions">GitHub Actions (CI)</button>
-            <button id="btn-reset-settings" type="button" class="danger">Nulstil alle indstillinger</button>
+            <button id="btn-reset-settings" type="button" class="danger">Reset all settings</button>
           </div>
         </section>
       </div>

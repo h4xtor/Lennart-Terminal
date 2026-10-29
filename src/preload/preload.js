@@ -2,6 +2,14 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
+// Every on*() subscription returns an unsubscribe function, so closed tabs
+// can detach their listeners (they used to pile up for every tab ever opened).
+function subscribe(channel, cb) {
+  const handler = (_e, payload) => cb(payload);
+  ipcRenderer.on(channel, handler);
+  return () => ipcRenderer.removeListener(channel, handler);
+}
+
 try {
   require('fs').appendFileSync(
     require('path').join(require('os').tmpdir(), 'lennart-terminal-main.log'),

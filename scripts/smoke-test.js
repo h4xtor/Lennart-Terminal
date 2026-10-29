@@ -564,7 +564,8 @@ async function main() {
       ui.typeAgent === 'Agent' && ui.typeAi.startsWith('AI'),
       `historikkens typer er Lokalt / Netværk / Agent / AI (${ui.typeAi})`,
     );
-    assert(ui.version === 'v0.2.0', `versionsmærket er korrekt (${ui.version})`);
+    const expectedVersion = 'v' + require('../package.json').version;
+    assert(ui.version === expectedVersion, `versionsmærket er korrekt (${ui.version})`);
     assert(
       ui.chrome.historyW >= 38 && ui.chrome.historyH >= 30 &&
       ui.chrome.settingsW >= 38 && ui.chrome.settingsH >= 30 &&

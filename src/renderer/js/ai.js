@@ -44,6 +44,10 @@ function initAiPanel() {
     }
   });
 
+  // Feltet vokser med teksten (op til ~6 linjer) — lange beskeder kan læses
+  // uden at panelet bliver dækket, og feltet krymper igen når der tømmes.
+  aiEls.input.addEventListener('input', autoGrowInput);
+
   // Stop auto-scrolling when the user scrolls up to read;
   // resume following the stream when they return to the bottom
   aiEls.messages.addEventListener('scroll', () => {
@@ -64,8 +68,8 @@ function initAiPanel() {
     aiState.assistantBuf = (aiState.assistantBuf || '') + token;
     renderStreaming();
   });
-  window.lennart.onChatDone(({ id }) => {
-    if (id === aiState.currentId) finishStreaming();
+  window.lennart.onChatDone((payload) => {
+    if (payload && payload.id === aiState.currentId) finishStreaming(payload);
   });
   window.lennart.onChatError(({ id, error }) => {
     if (id === aiState.currentId) failStreaming(error);
@@ -135,11 +139,22 @@ function onAiSubmit(e) {
     startAgentJob(text);
   } else if (!aiState.streaming) {
     aiEls.input.value = '';
-    aiEls.input.style.height = 'auto';
+    autoGrowInput();
     aiState.messages.push({ role: 'user', content: text });
     appendMessageEl('user', text);
     startStream();
   }
+}
+
+/**
+ * Hold composeren mellem 2 og 6 linjer: vokser med teksten, stopper ved
+ * max-height (132px i CSS'en) hvorefter den ruller i stedet.
+ */
+function autoGrowInput() {
+  const el = aiEls.input;
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = `${Math.min(el.scrollHeight, 132)}px`;
 }
 
 // ---------------------------------------------------------------------------
@@ -238,7 +253,7 @@ async function localHelpMarkdown(err) {
 async function showLocalHelp(text) {
   const label = text || '/help';
   aiEls.input.value = '';
-  aiEls.input.style.height = 'auto';
+  autoGrowInput();
   if (aiState.streaming) return;
   aiState.messages.push({ role: 'user', content: label });
   appendMessageEl('user', label);
@@ -387,36 +402,64 @@ function startStream() {
   });
 }
 
-function renderStreaming() {
-  const el = aiState.streamEl;
-  if (!el) return;
-  el.body.innerHTML = markdownToHtml(aiState.assistantBuf);
-  wireCodeBlockActions(el.body);
-  scrollBottom();
+// The KØRER marker is an instruction to the app, not text for the reader
+function visibleAnswer(text) {
+  return String(text || '').replace(/^[ \t]*\**[ \t]*KØRER[ \t]*\**[ \t]*\.?[ \t]*$/gim, '');
 }
 
-function finishStreaming() {
+// Re-rendering markdown on every token is O(n²) for long answers — batch
+// the stream into one render per animation frame.
+let streamRenderQueued = false;
+function renderStreaming() {
+  if (streamRenderQueued) return;
+  streamRenderQueued = true;
+  requestAnimationFrame(() => {
+    streamRenderQueued = false;
+    const el = aiState.streamEl;
+    if (!el) return;
+    el.body.innerHTML = markdownToHtml(visibleAnswer(aiState.assistantBuf));
+    wireCodeBlockActions(el.body);
+    scrollBottom();
+  });
+}
+
+/**
+ * payload (from main): { text, runRequested, stoppedLoop, truncated, aborted }
+ * text is the CLEANED answer (repeats, leaked prompt text and the KØRER
+ * marker removed) — it replaces the raw stream.
+ */
+function finishStreaming(payload) {
   if (!aiState.streaming) return;
+  const p = payload || {};
   aiState.streaming = false;
   aiState.pendingHelp = false;
   aiEls.sendBtn.disabled = false;
   aiEls.stopBtn.hidden = true;
 
-  const text = aiState.assistantBuf || '';
-  aiState.messages.push({ role: 'assistant', content: text });
+  const text = typeof p.text === 'string' ? p.text : visibleAnswer(aiState.assistantBuf || '').trim();
+  aiState.assistantBuf = text;
+  if (text) aiState.messages.push({ role: 'assistant', content: text });
   if (aiState.streamEl) {
     aiState.streamEl.body.classList.remove('cursor-blink');
     if (text) {
       aiState.streamEl.body.innerHTML = markdownToHtml(text);
       wireCodeBlockActions(aiState.streamEl.body);
+    } else if (p.aborted) {
+      aiState.streamEl.root.remove();
+    } else {
+      aiState.streamEl.body.textContent = '(intet svar — prøv at spørge igen)';
     }
   }
   aiState.streamEl = null;
+  if (p.stoppedLoop) {
+    appendStatus('Svaret blev stoppet, fordi modellen begyndte at gentage sig selv. Gentagelserne er fjernet.');
+  }
+  if (p.aborted) appendStatus('Svaret blev stoppet.');
   scrollBottom();
 
-  // The embedded PowerShell assistant: when the user asked us to run the
-  // command ("…og vil du udføre den for mig?"), run it in the active tab.
-  maybeAutoRunFromAnswer(text);
+  // When the user asked us to run the command ("…og vil du udføre den for
+  // mig?"), run it in the active tab — never for a stopped answer.
+  if (!p.aborted) maybeAutoRunFromAnswer(text);
 }
 
 function failStreaming(error) {
@@ -437,20 +480,27 @@ function failStreaming(error) {
 
 function attachTerminalOutput() {
   const tab = activeTab();
-  if (!tab || !tab.sessionId) {
-    appendMessageEl('error', 'Ingen levende terminalsession at vedhæfte.');
+  if (!tab || (!tab.sessionId && !tab.remote)) {
+    appendMessageEl('error', 'Ingen aktiv terminal at vedhæfte output fra.');
     return;
   }
-  const buf = (tab.outputBuf || '').trim();
+  // Strip ANSI colour codes — they are noise (and tokens) for the model
+  const buf = String(tab.outputBuf || '')
+    .replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, '')
+    .replace(/\x1b\][^\x07]*\x07/g, '')
+    .replace(/\r/g, '')
+    .trim()
+    .slice(-6000);
   if (!buf) {
-    appendMessageEl('error', 'Terminalens output-buffer er tom — kør noget først.');
+    appendMessageEl('error', 'Terminalen har ikke noget output endnu — kør en kommando først.');
     return;
   }
+  const where = tab.remote ? ` fra ${tab.host.name || tab.host.host}` : '';
   aiState.messages.push({
     role: 'user',
-    content: `Seneste terminaloutput (sidste ${buf.length} tegn):\n\`\`\`\n${buf}\n\`\`\`\n(Brug dette som kontekst til mit næste spørgsmål.)`,
+    content: `Seneste terminal-output${where} (${buf.length} tegn):\n\`\`\`\n${buf}\n\`\`\`\n(Brug det som kontekst til mit næste spørgsmål.)`,
   });
-  appendMessageEl('user', `📎 Vedhæftede ${buf.length} tegn seneste terminaloutput`);
+  appendMessageEl('user', `📎 Vedhæftede ${buf.length} tegn terminal-output${where}`);
   scrollBottom(true);
 }
 
@@ -527,13 +577,18 @@ function wireCodeBlockActions(scope) {
     };
 
     bar.append(
-      mk('Kopiér', 'Kopiér til udklipsholderen', () => navigator.clipboard.writeText(pre.getAttribute('data-code') || '')),
-      mk('Indsæt', 'Indsæt i prompt-boksen (Enter = kør selv)', () => {
+      mk('Kopiér', 'Kopiér til udklipsholderen', (e) => {
+        navigator.clipboard.writeText(pre.getAttribute('data-code') || '');
+        e.target.textContent = '✓ Kopieret';
+        setTimeout(() => { e.target.textContent = 'Kopiér'; }, 1200);
+      }),
+      mk('Indsæt', 'Sæt ind i prompt-boksen (tryk selv Enter for at køre)', () => {
         const inp = document.getElementById('prompt-input');
         inp.value = pre.getAttribute('data-code') || '';
+        inp.dispatchEvent(new Event('input'));
         inp.focus();
       }),
-      mk('Kør', 'Kør i den aktive terminalfane', () => runAiCommand(pre.getAttribute('data-code') || '')),
+      mk('Kør', 'Kør i den aktive fane (også fjern-faner)', () => runAiCommand(pre.getAttribute('data-code') || '')),
     );
     if (lang) {
       const tag = document.createElement('span');
@@ -547,23 +602,23 @@ function wireCodeBlockActions(scope) {
 
 async function runAiCommand(cmd) {
   const tab = activeTab();
-  if (!tab || tab.dead || (!tab.remote && !tab.sessionId)) {
-    appendMessageEl('error', 'Ingen aktiv terminalsession.');
+  // Remote tabs have no local PTY session — they run through remoteRun
+  if (!tab || (!tab.sessionId && !tab.remote) || tab.dead) {
+    appendMessageEl('error', 'Ingen aktiv terminal-fane at køre kommandoen i.');
     return;
   }
+  // Multi-line blocks become one line for the prompt (PowerShell accepts ';')
+  const line = String(cmd || '').split('\n').map((l) => l.trim()).filter(Boolean).join('; ');
+  if (!line) return;
   const settings = window.__lennartSettings || {};
-  if (settings.confirmDestructive !== false && isDestructiveCommand(cmd)) {
-    const ok = await window.lennart.confirmCommand(cmd);
+  if (settings.confirmDestructive !== false && isDestructiveCommand(line)) {
+    const ok = await window.lennart.confirmCommand(line);
     if (!ok) {
-      appendMessageEl('error', 'Kommando annulleret.');
+      appendMessageEl('error', 'Kommandoen blev annulleret.');
       return;
     }
   }
-  if (tab.dead) {
-    appendMessageEl('error', 'Terminalfanen blev lukket — kommandoen blev ikke kørt.');
-    return;
-  }
-  await tab.runCommand(cmd);
+  tab.runCommand(line);
 }
 
 // ---------------------------------------------------------------------------
@@ -573,18 +628,31 @@ async function runAiCommand(cmd) {
 // through the confirmation dialog; remote tabs always ask first.
 // ---------------------------------------------------------------------------
 
+/**
+ * Only an EXPLICIT request runs anything. The old check matched any “kør…”
+ * — so “Hvorfor kører min PC langsomt?” or “hvilken kommando skal jeg køre?”
+ * auto-executed the answer. Now one of these must be present:
+ *   “… udfør/kør … for mig”, “kør den/det/kommandoen”, a sentence that
+ *   starts with “Kør …” / “Udfør …”, or “run it / execute it”.
+ */
+const RUN_VERB = '(?:udfør|udføre|udfoer|kør|køre|koer|execute|run)';
+const WANTS_RUN_RES = [
+  new RegExp(`(?<!\\p{L})${RUN_VERB}(?!\\p{L})[^.?!\\n]{0,40}(?<!\\p{L})for mig(?!\\p{L})`, 'iu'),
+  new RegExp(`(?<!\\p{L})(?:kør|udfør|koer|udfoer)\\s+(?:den|det|dem|kommandoen|kommandoerne)(?!\\p{L})`, 'iu'),
+  new RegExp(`(?:^|[.!?\\n]\\s*)(?:kør|udfør|run|execute)(?!\\p{L})`, 'iu'),
+  /\b(?:run|execute) (?:it|this|that)\b/i,
+];
 function userWantsExecution(text) {
-  // Must be a request to execute — “kørende” (running) must NOT match “kør”.
-  const t = String(text || '').toLowerCase();
-  return /(^|[\s,.!?;:])(k(?:ø|o)r|udf(?:ø|o)r(?:e)?|execut(?:e|e it)?|run it|k(?:ø|o)r den|k(?:ø|o)r det|udf(?:ø|o)r den)(?=$|[\s,.!?;:])/i.test(t);
+  const t = String(text || '').trim();
+  return WANTS_RUN_RES.some((re) => re.test(t));
 }
 
 function extractRunCommand(answer) {
-  const m = String(answer || '').match(/```(?:powershell|ps1|pwsh|posh)?[ \t]*\n([\s\S]*?)```/i);
+  const m = String(answer || '').match(/```(?:powershell|ps1|pwsh|posh|cmd|bat)?[ \t]*\n([\s\S]*?)```/i);
   if (!m) return null;
-  const lines = m[1].split('\n').map((l) => l.trim()).filter(Boolean);
+  const lines = m[1].split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
   if (!lines.length) return null;
-  const cmd = lines.join(' ');      // one-liner form — safe for the prompt box
+  const cmd = lines.join('; ');     // one-liner form — safe for the prompt box
   if (cmd.length > 500) return null; // never auto-run long scripts
   if (/```/.test(cmd)) return null;
   return cmd;
@@ -601,6 +669,7 @@ function maybeAutoRunFromAnswer(answer) {
     const tab = activeTab();
     if (!tab) return;
 
+    if (tab.dead) return;
     if (tab.remote) {
       const ok = window.confirm(
         `Kør kommandoen på fjernværten ${tab.host.host}?\n\n${cmd}`,
@@ -631,14 +700,18 @@ function isDestructiveCommand(cmd) {
 function markdownToHtml(md) {
   const out = [];
   const lines = String(md).split('\n');
-  let inCode = false, codeLang = '', codeBuf = [], listOpen = false;
+  let inCode = false;
+  let codeLang = '';
+  let codeBuf = [];
+  let list = null;            // 'ul' | 'ol' | null
+  let lastBlank = false;
 
   const closeList = () => {
-    if (listOpen) { out.push('</ul>'); listOpen = false; }
+    if (list) { out.push(`</${list}>`); list = null; }
   };
 
   for (const raw of lines) {
-    const fence = raw.match(/^\s*```(\w*)/);
+    const fence = raw.match(/^\s*```\s*([\w+#-]*)/);
     if (fence) {
       if (inCode) {
         out.push(renderCodeBlock(codeBuf.join('\n'), codeLang));
@@ -647,45 +720,79 @@ function markdownToHtml(md) {
         closeList();
         inCode = true; codeLang = fence[1] || '';
       }
+      lastBlank = false;
       continue;
     }
     if (inCode) { codeBuf.push(raw); continue; }
 
-    // Markdown headings ("### /help …") used to render as literal hashes.
-    const heading = raw.match(/^\s{0,3}#{1,6}\s+(.*)$/);
-    if (heading) {
+    // Headings → a bold line (no giant <h1> inside a chat bubble)
+    const h = raw.match(/^\s*#{1,6}\s+(.*?)\s*#*\s*$/);
+    if (h) {
       closeList();
-      out.push(`<p class="md-head">${inlineMd(heading[1])}</p>`);
+      out.push(`<p class="md-h"><b>${inlineMd(h[1])}</b></p>`);
+      lastBlank = false;
       continue;
     }
 
-    const li = raw.match(/^\s*[-*]\s+(.*)$/);
+    const ol = raw.match(/^\s*(\d{1,3})[.)]\s+(.*)$/);
+    if (ol) {
+      if (list !== 'ol') {
+        closeList();
+        // keep the model's numbering when a code block split the list
+        out.push(`<ol start="${Number(ol[1]) || 1}">`);
+        list = 'ol';
+      }
+      out.push(`<li>${inlineMd(ol[2])}</li>`);
+      lastBlank = false;
+      continue;
+    }
+
+    const li = raw.match(/^\s*[-*•]\s+(.*)$/);
     if (li) {
-      if (!listOpen) { out.push('<ul>'); listOpen = true; }
+      if (list !== 'ul') { closeList(); out.push('<ul>'); list = 'ul'; }
       out.push(`<li>${inlineMd(li[1])}</li>`);
+      lastBlank = false;
+      continue;
+    }
+
+    if (!raw.trim()) {
+      // a blank line between list items keeps the list open
+      if (!list && !lastBlank) out.push('<p></p>');
+      lastBlank = true;
       continue;
     }
     closeList();
-
-    if (!raw.trim()) { out.push('<p></p>'); continue; }
-    out.push(`<p>${inlineMd(raw)}</p>`);
+    out.push(`<p>${inlineMd(raw.trim())}</p>`);
+    lastBlank = false;
   }
   if (inCode) out.push(renderCodeBlock(codeBuf.join('\n'), codeLang));
   closeList();
   return out.join('');
 }
 
+/** Remove the common leading indentation (code blocks nested in lists). */
+function dedentCode(code) {
+  const lines = String(code).replace(/\s+$/, '').split('\n');
+  const indents = lines.filter((l) => l.trim()).map((l) => l.match(/^[ \t]*/)[0].length);
+  const min = indents.length ? Math.min(...indents) : 0;
+  return lines.map((l) => l.slice(min)).join('\n');
+}
+
 function renderCodeBlock(code, lang) {
-  const escaped = escapeHtml(code);
+  const clean = dedentCode(code);
+  const escaped = escapeHtml(clean);
   const attrLang = escapeHtml(lang || '');
-  return `<pre data-lang="${attrLang}" data-code="${escapeHtml(code)}"><code>${escaped}</code></pre>`;
+  return `<pre data-lang="${attrLang}" data-code="${escaped}"><code>${escaped}</code></pre>`;
 }
 
 function inlineMd(s) {
   let h = escapeHtml(s);
   h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
   h = h.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
-  h = h.replace(/(^|\s)\*([^*]+)\*(?=\s|$)/g, '$1<i>$2</i>');
+  h = h.replace(/(^|\s)\*([^*]+)\*(?=\s|$|[.,:;!?])/g, '$1<i>$2</i>');
+  h = h.replace(/(^|\s)_([^_]+)_(?=\s|$|[.,:;!?])/g, '$1<i>$2</i>');
+  // [tekst](https://…) → link (opened in the browser by main's open handler)
+  h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
   return h;
 }
 

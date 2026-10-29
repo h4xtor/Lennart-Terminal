@@ -639,24 +639,87 @@ kbd {
 }
 .suggestion:hover { border-color: var(--accent); color: var(--text); }
 
+/* Promptkort i bunden — samme DNA som #prompt-box: kort med glow ved fokus */
 #ai-composer {
-  border-top: 1px solid var(--border);
-  padding: 10px 12px;
+  padding: 10px 12px 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+}
+.composer-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  padding: 10px 10px 6px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.32);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.composer-card:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft), 0 6px 22px rgba(0, 0, 0, 0.4);
 }
 #ai-input {
   resize: none;
+  width: 100%;
+  background: transparent;   /* kortet ER baggrunden — feltet smelter ind */
+  border: none;
+  outline: none;
+  box-shadow: none;
+  color: var(--text);
   font-family: var(--sans);
-  background: var(--bg-panel);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 2px 6px 8px;
+  max-height: 132px;         /* auto-grow til ~6 linjer, derefter scroll */
+  overflow-y: auto;
 }
-.ai-composer-row { display: flex; gap: 8px; align-items: center; }
-.ai-composer-row button {
+#ai-input:focus { border: none; box-shadow: none; }
+#ai-input::placeholder { color: var(--text-faint); }
+.ai-composer-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);  /* svag skillelinje over knapperne */
+}
+#btn-send-terminal {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  padding: 5px 9px;
+  border-radius: 9px;
+}
+#btn-send-terminal:hover { background: var(--bg-hover); color: var(--text); }
+/* Cirkulær accent-sendknap yderst til højre */
+#btn-ai-send {
+  width: 32px;
+  height: 32px;
+  border-radius: 11px;
+  border: none;
+  padding: 0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  background: linear-gradient(180deg, #8b7cff, var(--accent));
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(124, 108, 255, 0.35);
+  transition: filter 120ms ease, transform 60ms ease, box-shadow 150ms ease;
+}
+#btn-ai-send:hover:not(:disabled) {
+  filter: brightness(1.12);
+  box-shadow: 0 3px 14px rgba(124, 108, 255, 0.55);
+}
+#btn-ai-send:active:not(:disabled) { transform: translateY(1px); filter: brightness(0.96); }
+#btn-ai-stop {
+  border-radius: 9px;
+  border-color: rgba(248, 113, 113, 0.6);
+  color: #fca5a5;
   font-size: 11.5px;
   padding: 5px 10px;
 }
-#btn-ai-send { background: var(--accent); border-color: var(--accent); color: #fff; }
+#btn-ai-stop:hover { background: rgba(248, 113, 113, 0.14); }
 
 /* ============ Settings dialog ============ */
 
@@ -1184,14 +1247,7 @@ button.danger:hover { background: rgba(248, 113, 113, .12); border-color: var(--
 button.danger:active { background: rgba(248, 113, 113, .2); }
 
 /* AI composer actions */
-#btn-ai-send {
-  background: linear-gradient(180deg, #8b7cff, var(--accent));
-  border-color: #6a5cf0;
-  box-shadow: 0 2px 10px rgba(124, 108, 255, .3);
-}
 #btn-ai-send:hover { filter: brightness(1.1); }
-#btn-ai-stop { border-color: rgba(248, 113, 113, .6); color: #fca5a5; }
-#btn-ai-stop:hover { background: rgba(248, 113, 113, .14); }
 
 /* Bordered inputs: accent ring on focus (prompt input keeps its own glow) */
 input[type="text"]:focus, input[type="password"]:focus, select:focus, textarea:focus {

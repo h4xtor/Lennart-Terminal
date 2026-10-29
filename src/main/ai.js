@@ -124,6 +124,62 @@ const PROVIDERS = {
     keyUrl: 'https://platform.moonshot.cn/console/api-keys',
     keyPlaceholder: 'sk-…',
   },
+  deepseek: {
+    label: 'DeepSeek',
+    group: 'Cloud (API-nøgle)',
+    protocol: 'openai',
+    baseUrl: 'https://api.deepseek.com',
+    needsKey: true,
+    keyUrl: 'https://platform.deepseek.com/api_keys',
+    keyPlaceholder: 'sk-…',
+    hint: 'Stærk coder-model til favorable priser — OpenAI-kompatibel',
+  },
+  groq: {
+    label: 'Groq',
+    group: 'Cloud (API-nøgle)',
+    protocol: 'openai',
+    baseUrl: 'https://api.groq.com/openai/v1',
+    needsKey: true,
+    keyUrl: 'https://console.groq.com/docs/quickstart',
+    keyPlaceholder: 'gsk_…',
+    hint: 'Ekstremt hurtige inference-svar (LPU)',
+  },
+  mistral: {
+    label: 'Mistral AI',
+    group: 'Cloud (API-nøgle)',
+    protocol: 'openai',
+    baseUrl: 'https://api.mistral.ai/v1',
+    needsKey: true,
+    keyUrl: 'https://docs.mistral.ai/admin/identity-access/api-keys',
+  },
+  xai: {
+    label: 'xAI (Grok)',
+    group: 'Cloud (API-nøgle)',
+    protocol: 'openai',
+    baseUrl: 'https://api.x.ai/v1',
+    needsKey: true,
+    keyUrl: 'https://docs.x.ai/developers/quickstart',
+    keyPlaceholder: 'xai-…',
+  },
+  together: {
+    label: 'Together AI',
+    group: 'Cloud (API-nøgle)',
+    protocol: 'openai',
+    baseUrl: 'https://api.together.ai/v1',
+    needsKey: true,
+    keyUrl: 'https://docs.together.ai/docs/api-keys-authentication',
+    hint: 'Adgang til hundredvis af åbne modeller (Llama, Qwen, Mistral)',
+  },
+  perplexity: {
+    label: 'Perplexity',
+    group: 'Cloud (API-nøgle)',
+    protocol: 'openai',
+    baseUrl: 'https://api.perplexity.ai/router/v1',
+    needsKey: true,
+    keyUrl: 'https://docs.perplexity.ai/docs/getting-started/quickstart',
+    keyPlaceholder: 'pplx-…',
+    hint: 'Søge-modeller med aktuelle kilder i svaret',
+  },
   'antigravity-cli': {
     label: 'Antigravity CLI (lokal agent-motor)',
     group: 'Agent-motor',
@@ -228,8 +284,8 @@ async function listModels(cfg, { timeout = 6000 } = {}) {
           throw new Error(`Anthropic ${res.status} ${res.statusText}`);
         }
         const known = [
+          'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5',
           'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5',
-          'claude-opus-4-1', 'claude-sonnet-4-0', 'claude-3-7-sonnet-latest', 'claude-3-5-haiku-latest',
         ];
         return known.map((id) => ({ id, label: id }));
       }
@@ -238,7 +294,7 @@ async function listModels(cfg, { timeout = 6000 } = {}) {
       const live = arr.map((m) => ({ id: m.id || m.name, label: m.display_name || m.id || m.name }))
         .filter((m) => m.id);
       return live.length ? live : [
-        'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5',
+        'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5',
       ].map((id) => ({ id, label: id }));
     } finally {
       done();
@@ -281,10 +337,17 @@ async function listModels(cfg, { timeout = 6000 } = {}) {
 // Streaming chat
 // ---------------------------------------------------------------------------
 
+// Endpoints that speak llama.cpp sampler fields (repeat_penalty / repeat_last_n).
+// Cloud and unknown OpenAI-compatible servers get none — an unknown field can
+// make strict APIs reject the whole request.
+const LOCAL_LLAMA_PROVIDERS = new Set(['lennart-local', 'llamacpp', 'lmstudio']);
+
 /**
  * cfg: { provider, model, baseUrl, apiKey, temperature }
  * messages: [{ role, content }]
  * opts: { system, onToken(token), signal }
+ * Resolves { finishReason } — 'length' when the token limit cut the answer
+ * off, 'stop' (or '') otherwise.
  */
 async function chat(cfg, messages, { system, onToken, signal } = {}) {
   const { provider, protocol, baseUrl, apiKey } = resolveConfig(cfg);
@@ -299,22 +362,58 @@ async function chat(cfg, messages, { system, onToken, signal } = {}) {
     throw new Error('AI-udbyder er ikke konfigureret — åbn Indstillinger og vælg "Indbygget (offline)" eller udfyld en base URL');
   }
 
-  const temperature = Number.isFinite(cfg.temperature) ? cfg.temperature : 0.4;
+  // resolveLocalProvider() (main.js) rewrites the embedded provider to
+  // 'openai-compatible' before chat() runs — cfg.embeddedLocal keeps it
+  // marked, so the anti-loop caps and sampler penalties below still reach
+  // the local llama-server instead of silently vanishing.
+  const embedded = provider === 'lennart-local' || cfg.embeddedLocal === true;
+
+  // The embedded 1.5B/3B coder model rambles at the generic default — answer
+  // slightly cooler and much shorter, unless the user set their own values.
+  const fallbackTemp = embedded ? 0.3 : 0.4;
+  const temperature = Number.isFinite(cfg.temperature) ? cfg.temperature : fallbackTemp;
   // Model settings (Settings → Model-indstillinger). maxTokens 0 = provider
   // default, topP 1 = standard sampling.
-  const maxTokens = Number(cfg.maxTokens) > 0 ? Number(cfg.maxTokens) : 0;
+  let maxTokens = Number(cfg.maxTokens) > 0 ? Number(cfg.maxTokens) : 0;
   const topP = Number(cfg.topP) > 0 ? Number(cfg.topP) : 1;
 
+  // The embedded model gets a hard answer cap so a looping reply cannot run
+  // until the context fills. 700 tokens fits a 4-step setup answer in Danish
+  // (the old 400 cut real answers off mid-sentence); real loops are stopped
+  // much earlier by the answer guard (answer.js). Settings can override it.
+  if (embedded && !maxTokens) maxTokens = 700;
+
+  // An answer that looped once must not teach the model to loop again.
+  // Two defenses: (1) an old assistant turn that looks like a list-loop is
+  // dropped entirely — the model would otherwise continue its own numbering
+  // ("11. … 12. … 13. …" right after a looped 1..10 answer); (2) whatever
+  // survives is capped so a long answer can't dominate the context.
+  const looksLikeLoop = (content) => {
+    const lines = content.split('\n').map((l) => l.trim());
+    const numbered = lines.filter((l) => /^\d{1,2}\.\s/.test(l)).length;
+    if (numbered >= 6) return true;
+    const long = lines.filter((l) => l.length > 15);
+    const seen = new Set(long);
+    return seen.size < long.length; // repeated non-trivial lines
+  };
+  const safeMessages = messages.filter((m) => {
+    if (m.role !== 'assistant' || typeof m.content !== 'string') return true;
+    // Answers are cleaned by the answer guard before they reach history, so
+    // a long answer is no longer a loop sign — 3500 chars keeps a full
+    // 700-token answer (needed for "fortsæt") while still dropping runaways.
+    return !(m.content.length > 3500 || looksLikeLoop(m.content));
+  });
+
   if (protocol === 'ollama') {
-    return chatOllama({ baseUrl, model, messages, system, temperature, maxTokens, topP, onToken, signal });
+    return chatOllama({ baseUrl, model, messages: safeMessages, system, temperature, maxTokens, topP, onToken, signal });
   }
   if (protocol === 'anthropic') {
-    return chatAnthropic({ baseUrl, model, messages, system, temperature, maxTokens, topP, apiKey, onToken, signal });
+    return chatAnthropic({ baseUrl, model, messages: safeMessages, system, temperature, maxTokens, topP, apiKey, onToken, signal });
   }
   if (protocol === 'agy') {
-    return chatAgy({ messages, system, onToken, signal, model, allowTools: false });
+    return chatAgy({ messages: safeMessages, system, onToken, signal, model, allowTools: false });
   }
-  return chatOpenAICompatible({ baseUrl, model, messages, system, temperature, maxTokens, topP, apiKey, onToken, signal });
+  return chatOpenAICompatible({ provider, embedded, baseUrl, model, messages: safeMessages, system, temperature, maxTokens, topP, apiKey, onToken, signal });
 }
 
 async function chatOllama({ baseUrl, model, messages, system, temperature, maxTokens, topP, onToken, signal }) {
@@ -324,6 +423,11 @@ async function chatOllama({ baseUrl, model, messages, system, temperature, maxTo
     stream: true,
     options: {
       temperature,
+      // anti-repetition: without a penalty small models repeat steps forever.
+      // Kept moderate — an aggressive penalty over the end of a long system
+      // prompt makes the model rewrite the instructions instead of answering.
+      repeat_penalty: 1.15,
+      repeat_last_n: 256,
       ...(maxTokens > 0 ? { num_predict: maxTokens } : {}),
       ...(topP < 1 ? { top_p: topP } : {}),
     },
@@ -335,13 +439,16 @@ async function chatOllama({ baseUrl, model, messages, system, temperature, maxTo
     signal,
   });
   if (!res.ok) throw new Error(`Ollama ${res.status}: ${(await safeText(res)).slice(0, 200)}`);
+  let finishReason = '';
   await consumeNdjson(res, (obj) => {
     const tok = obj.message && obj.message.content;
     if (typeof tok === 'string' && tok) onToken(tok);
+    if (obj.done && obj.done_reason) finishReason = obj.done_reason === 'length' ? 'length' : 'stop';
   });
+  return { finishReason };
 }
 
-async function chatOpenAICompatible({ baseUrl, model, messages, system, temperature, maxTokens, topP, apiKey, onToken, signal }) {
+async function chatOpenAICompatible({ provider, embedded, baseUrl, model, messages, system, temperature, maxTokens, topP, apiKey, onToken, signal }) {
   const headers = { 'Content-Type': 'application/json' };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
   headers['HTTP-Referer'] = 'https://lennart-terminal.local';
@@ -353,6 +460,11 @@ async function chatOpenAICompatible({ baseUrl, model, messages, system, temperat
     temperature,
     ...(maxTokens > 0 ? { max_tokens: maxTokens } : {}),
     ...(topP < 1 ? { top_p: topP } : {}),
+    // Anti-repetition for llama.cpp-family endpoints: without a real penalty
+    // the embedded model repeats the same numbered step ("23. Net use …
+    // 29. Net use") until the context fills up. 1.30 is the point where a
+    // 1.5B coder model actually stops instead of merely slowing down.
+    ...(embedded || LOCAL_LLAMA_PROVIDERS.has(provider) ? { repeat_penalty: 1.15, repeat_last_n: 256 } : {}),
     messages: system ? [{ role: 'system', content: system }, ...messages] : messages,
   };
   const res = await fetch(`${baseUrl}/chat/completions`, {
@@ -366,18 +478,23 @@ async function chatOpenAICompatible({ baseUrl, model, messages, system, temperat
   const ct = res.headers.get('content-type') || '';
   if (!ct.includes('text/event-stream')) {
     const json = await res.json();
-    const content = json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content;
+    const choice = (json.choices && json.choices[0]) || {};
+    const content = choice.message && choice.message.content;
     if (content) onToken(content);
-    return;
+    return { finishReason: choice.finish_reason === 'length' ? 'length' : 'stop' };
   }
+  let finishReason = '';
   await consumeSse(res, (payload) => {
     if (payload === '[DONE]') return;
     try {
       const obj = JSON.parse(payload);
-      const tok = obj.choices && obj.choices[0] && obj.choices[0].delta && obj.choices[0].delta.content;
+      const choice = (obj.choices && obj.choices[0]) || {};
+      const tok = choice.delta && choice.delta.content;
       if (typeof tok === 'string' && tok) onToken(tok);
+      if (choice.finish_reason) finishReason = choice.finish_reason === 'length' ? 'length' : 'stop';
     } catch { /* keep-alive */ }
   });
+  return { finishReason };
 }
 
 /**
@@ -402,6 +519,7 @@ async function chatAgy({ messages, system, onToken, signal, model, allowTools })
     allowTools: allowTools === true,
   });
   void res;
+  return { finishReason: 'stop' };
 }
 
 async function chatAnthropic({ baseUrl, model, messages, system, temperature, maxTokens, topP, apiKey, onToken, signal }) {
@@ -436,14 +554,18 @@ async function chatAnthropic({ baseUrl, model, messages, system, temperature, ma
   });
   if (!res.ok) throw new Error(`Anthropic ${res.status}: ${(await safeText(res)).slice(0, 200)}`);
 
+  let finishReason = '';
   await consumeSse(res, (payload) => {
     try {
       const obj = JSON.parse(payload);
       if (obj.type === 'content_block_delta' && obj.delta && typeof obj.delta.text === 'string') {
         onToken(obj.delta.text);
+      } else if (obj.type === 'message_delta' && obj.delta && obj.delta.stop_reason) {
+        finishReason = obj.delta.stop_reason === 'max_tokens' ? 'length' : 'stop';
       }
     } catch { /* keep-alive */ }
   });
+  return { finishReason };
 }
 
 // ---------------------------------------------------------------------------
@@ -603,7 +725,8 @@ async function consumeSse(res, onPayload) {
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    buf += decoder.decode(value, { stream: true });
+    // Some servers frame events with \r\n — normalize before splitting
+    buf += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
     const events = buf.split('\n\n');
     buf = events.pop() || '';
     consume(events.join('\n\n'));
@@ -615,29 +738,65 @@ async function consumeSse(res, onPayload) {
 }
 
 // ---------------------------------------------------------------------------
-// Agent system prompt (built-in autopilot)
+// System prompts
+//
+// The knowledge itself lives in knowledge.js as small topic cards; every
+// question only gets the cards that match it. The answer-format contract is
+// REQUIRED by the renderer: the FIRST ```powershell block is what the Kør
+// button / auto-run uses, and a lone KØRER line marks "the user asked me to
+// run it" (answer.js strips it from the visible text).
 // ---------------------------------------------------------------------------
 
-function buildAgentSystemPrompt() {
-  return [
-    'You are Lennart, the AI agent inside Lennart Terminal on Windows.',
-    'The user works in a terminal and sees your answers in a side panel.',
-    '',
-    'Rules:',
-    '- Be concise and practical; prefer short paragraphs and lists.',
-    '- Put commands in their own fenced code block (```powershell or ```bash).',
-    '- Windows + PowerShell is the default environment.',
-    '- Never invent file contents or command output. Say what to check instead.',
-    '- Warn explicitly before destructive commands (delete, format, force-push, kill).',
-    '- You cannot execute anything yourself — the user runs commands.',
-  ].join('\n');
+const { selectCards, renderCards } = require('./knowledge');
+
+// Static part first: llama-server caches the shared prompt prefix, so only
+// the small VIDEN block at the end is re-processed per question.
+const EMBEDDED_CORE = [
+  'Du er Lennart — den indbyggede offline-assistent i Lennart Terminal på Windows.',
+  'Brugeren er ikke programmør: forklar i almindeligt, venligt dansk, som til en ven.',
+  '',
+  'SÅDAN SVARER DU',
+  '- Svar altid på dansk. Begynd direkte med svaret — ingen indledning, gentag ikke spørgsmålet.',
+  '- Giv kommandoer i ```powershell-kodeblokke. Den første kodeblok er den, appens Kør-knap kører.',
+  '- Et enkelt spørgsmål: 1-2 sætninger, én kodeblok, én kort afsluttende sætning.',
+  '- En opsætning med flere trin: højst 4 korte trin. Hvert trin er én sætning, der siger HVOR det køres (fx "på hver mål-PC" eller "på din egen PC"), efterfulgt af én kodeblok.',
+  '- Brug fakta fra VIDEN herunder. Hold dig til emnet i spørgsmålet — bland aldrig andre emner ind.',
+  '- Skriv hvert trin og hver kommando kun én gang. Når svaret er givet, så stop.',
+  '- Ingen overskrifter med #. Kun Windows PowerShell eller CMD — aldrig Linux-kommandoer.',
+  '- Advar kort før kommandoer, der sletter, stopper eller ændrer noget.',
+  '- Ved tvivl: sig ærligt, hvad du ikke ved, i stedet for at gætte.',
+  '- Kun hvis brugeren beder dig udføre kommandoen: skriv ordet KØRER alene på sidste linje. Ellers aldrig.',
+].join('\n');
+
+const CLOUD_CORE = [
+  'Du er Lennart, AI-assistenten i Lennart Terminal — en Windows-terminal (PowerShell) med AI-panel, fjern-faner til andre PC\'er (SSH eller WinRM) og en agent-tilstand.',
+  'Brugeren er ikke nødvendigvis programmør: svar på dansk i almindeligt, venligt sprog — kort, konkret og korrekt.',
+  '',
+  'Regler:',
+  '- Windows + PowerShell er standardmiljøet, medmindre brugeren siger andet.',
+  '- Kommandoer står i egne ```powershell-kodeblokke. Hver blok får knapperne Kopiér, Indsæt og Kør (Kør kører i den aktive fane — også en fjern-fane).',
+  '- Ved opsætninger: korte trin, og skriv tydeligt hvor hvert trin køres (fx på hver mål-PC eller på din egen PC).',
+  '- Opfind aldrig kommando-output eller filindhold — sig hvad brugeren skal tjekke.',
+  '- Advar tydeligt før destruktive kommandoer (sletning, formatering, force-push, stop af processer).',
+  '- Du kan ikke selv køre noget i chat-tilstand — brugeren trykker Kør.',
+].join('\n');
+
+/**
+ * System prompt for the chat panel.
+ * opts.embedded — the small built-in offline model (strict, short prompt)
+ * opts.question — the latest user message (selects the knowledge cards)
+ * opts.previous — the user message before it (follow-up questions)
+ */
+function buildChatSystemPrompt({ embedded = true, question = '', previous = '' } = {}) {
+  const cards = selectCards(question, previous, { max: embedded ? 2 : 3 });
+  const core = embedded ? EMBEDDED_CORE : CLOUD_CORE;
+  return `${core}\n\nVIDEN (brug kun det, der passer til spørgsmålet):\n${renderCards(cards)}`;
 }
 
-// ---------------------------------------------------------------------------
-// System prompt for the small embedded offline model (lennart-local).
-// The model is tiny (1.5–3B), so the prompt is short, concrete and heavily
-// anchored in PowerShell: it must produce runnable commands, not essays.
-// ---------------------------------------------------------------------------
+/** Back-compat: the embedded prompt without a question (general card). */
+function buildPowerShellSystemPrompt(question) {
+  return buildChatSystemPrompt({ embedded: true, question: question || '' });
+}
 
 function buildPowerShellSystemPrompt() {
   return [
@@ -670,6 +829,11 @@ function buildPowerShellSystemPrompt() {
   ].join('\n');
 }
 
+/** Back-compat: the prompt used for bigger/cloud models. */
+function buildAgentSystemPrompt(question) {
+  return buildChatSystemPrompt({ embedded: false, question: question || '' });
+}
+
 module.exports = {
   chat,
   listModels,
@@ -679,6 +843,7 @@ module.exports = {
   DEFAULT_PROVIDER,
   buildAgentSystemPrompt,
   buildPowerShellSystemPrompt,
+  buildChatSystemPrompt,
   agyAvailable,
   listAgyModels,
   runAgyAgent,

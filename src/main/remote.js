@@ -32,32 +32,65 @@ function psQuote(s) {
  * Build the argv for a one-shot remote PowerShell command.
  * Pure function — unit-tested without spawning anything.
  */
+// Max length of an -EncodedCommand argument for SSH: OpenSSH on Windows runs
+// the remote command through cmd.exe, whose command line is capped at 8191.
+const SSH_ENCODED_MAX = 7000;
+
+/**
+ * Friendly Danish hints appended to WinRM output when the classic setup
+ * mistakes show up in the error text (English and Danish Windows).
+ */
+function winrmHintScript(host) {
+  return [
+    "if ($out -match 'TrustedHosts') {",
+    "  Write-Output '[Lennart] Denne PC stoler ikke på værten endnu. Kør som administrator på DENNE PC:'",
+    `  Write-Output ${psQuote(`Set-Item WSMan:\\localhost\\Client\\TrustedHosts -Value '${host}' -Concatenate -Force`)}`,
+    "} elseif ($out -match 'Access is denied|Adgang nægtet|Adgang er nægtet') {",
+    "  Write-Output '[Lennart] Adgang nægtet: tjek brugernavn/adgangskode. Ved lokale konti kør på MÅL-PC''en (admin):'",
+    "  Write-Output 'New-ItemProperty -Path \"HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\" -Name LocalAccountTokenFilterPolicy -Value 1 -PropertyType DWord -Force'",
+    "} elseif ($out -match 'WinRM cannot complete|cannot connect|kan ikke fuldføre|kan ikke oprette forbindelse|The client cannot connect') {",
+    "  Write-Output '[Lennart] Kunne ikke få forbindelse. Slå WinRM til på MÅL-PC''en (admin): Enable-PSRemoting -Force -SkipNetworkProfileCheck'",
+    "}",
+  ].join('\n');
+}
+
+/**
+ * Build the argv for a one-shot remote PowerShell command.
+ * Pure function — unit-tested without spawning anything.
+ */
 function buildRemoteArgv(host, method, command, opts) {
   const o = opts || {};
   if (method === 'winrm') {
     const inner = [
+      // UTF-8 back to Node, so æ/ø/å in output survive
+      '[Console]::OutputEncoding = [Text.Encoding]::UTF8',
       '$ErrorActionPreference = "Continue"',
       `$pw = ConvertTo-SecureString ${psQuote(o.password || '')} -AsPlainText -Force`,
       `$cred = New-Object System.Management.Automation.PSCredential(${psQuote(o.username || 'Administrator')}, $pw)`,
-      `Invoke-Command -ComputerName ${psQuote(host)} -Credential $cred -ScriptBlock { [Console]::OutputEncoding=[Text.Encoding]::UTF8; ${command} } 2>&1 | Out-String`,
-    ].join('; ');
+      `$out = Invoke-Command -ComputerName ${psQuote(host)} -Credential $cred -ScriptBlock { ${command} } -ErrorVariable remErr 2>&1 | Out-String -Width 220`,
+      'Write-Output $out',
+      winrmHintScript(host),
+      // Connection problems (not errors inside the command) → exit 1, so
+      // the "Test" button and the history report a failure in any language
+      'if ($remErr | Where-Object { $_.Exception -is [System.Management.Automation.Remoting.PSRemotingTransportException] }) { exit 1 }',
+    ].join('\n');
     return ['powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', b64Utf16(inner)]];
   }
-  // ssh (default) — key path optional. The command is passed as a base64
-  // -EncodedCommand so the remote shell (bash on Linux, cmd on Windows) does
-  // not expand $variables or interpret pipes before PowerShell sees them.
-  // Linux/macOS: install PowerShell 7 and make `powershell.exe` resolve to
-  // pwsh (e.g. sudo ln -s "$(command -v pwsh)" /usr/local/bin/powershell.exe).
+  // ssh (default) — key path optional. The command travels as an encoded
+  // PowerShell blob: plain arguments get re-split by the remote cmd.exe and
+  // break quotes, pipes and $variables. Linux/macOS: install PowerShell 7 and
+  // make `powershell.exe` resolve to pwsh.
   const args = ['-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes'];
   if (o.keyPath) args.push('-i', o.keyPath);
-  args.push(
-    o.username ? `${o.username}@${host}` : host,
-    'powershell.exe', '-NoLogo', '-NoProfile',
-    // Without this, PowerShell serialises errors as CLIXML ("#< CLIXML …
-    // _x001B_[31;1m…") because SSH gives it redirected stderr.
-    '-OutputFormat', 'Text',
-    '-EncodedCommand', b64Utf16(command),
-  );
+  args.push(o.username ? `${o.username}@${host}` : host);
+  const encoded = b64Utf16(`[Console]::OutputEncoding = [Text.Encoding]::UTF8
+${command}`);
+  if (encoded.length <= SSH_ENCODED_MAX) {
+    // -OutputFormat Text: without it PowerShell serialises errors as CLIXML over SSH
+    args.push('powershell.exe', '-NoLogo', '-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-EncodedCommand', encoded);
+  } else {
+    args.push('powershell.exe', '-NoLogo', '-NoProfile', '-Command', command);
+  }
   return ['ssh.exe', args];
 }
 
@@ -113,14 +146,17 @@ class RemoteRunner {
         clearTimeout(timer);
         resolve(result);
       };
-
-      const onData = (chunk) => {
-        const text = chunk.toString('utf8');
+      // Decode across chunk boundaries (a multi-byte æ/ø/å may be split)
+      const { StringDecoder } = require('string_decoder');
+      const dec = { out: new StringDecoder('utf8'), err: new StringDecoder('utf8') };
+      const onData = (which) => (chunk) => {
+        const text = dec[which].write(chunk);
+        if (!text) return;
         out += text;
         this.emit(tabId, text);
       };
-      child.stdout.on('data', onData);
-      child.stderr.on('data', onData);
+      child.stdout.on('data', onData('out'));
+      child.stderr.on('data', onData('err'));
 
       child.on('error', (err) => {
         finish({ ok: false, code: -1, output: out + `\n[fejl: ${err.message}]`, timedOut });

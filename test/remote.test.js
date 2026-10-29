@@ -18,7 +18,11 @@ async function testSshArgv() {
   const encIdx = args.indexOf('-EncodedCommand');
   assert.ok(encIdx > 0, 'uses -EncodedCommand');
   assert.strictEqual(args[args.indexOf('-OutputFormat') + 1], 'Text', 'prevents CLIXML error output');
-  assert.strictEqual(Buffer.from(args[encIdx + 1], 'base64').toString('utf16le'), 'Get-Date');
+  const enc = args[args.indexOf('-EncodedCommand') + 1];
+  assert.ok(Buffer.from(enc, 'base64').toString('utf16le').includes('Get-Date'), 'command travels encoded');
+  // a huge command falls back to -Command (cmd.exe line limit on the target)
+  const [, bigArgs] = buildRemoteArgv('h', 'ssh', 'x'.repeat(6000), {});
+  assert.ok(bigArgs.includes('-Command'), 'long commands fall back to -Command');
   assert.ok(!args.some((a) => typeof a === 'string' && /password/i.test(a)), 'no password flags in ssh argv');
   console.log('PASS ssh argv (encoded command)');
 }
@@ -28,7 +32,7 @@ async function testSshArgvWithoutUser() {
   assert.strictEqual(file, 'ssh.exe');
   assert.ok(args.includes('pc12.local'));
   const encIdx = args.indexOf('-EncodedCommand');
-  assert.strictEqual(Buffer.from(args[encIdx + 1], 'base64').toString('utf16le'), 'hostname');
+  assert.ok(Buffer.from(args[encIdx + 1], 'base64').toString('utf16le').endsWith('hostname'), 'ends with the user command');
   console.log('PASS ssh argv without user');
 }
 
@@ -38,7 +42,7 @@ async function testSshShellSpecialChars() {
   const cmd = '$PSVersionTable.PSVersion | Out-String';
   const [, args] = buildRemoteArgv('linux-box', 'ssh', cmd, {});
   const encIdx = args.indexOf('-EncodedCommand');
-  assert.strictEqual(Buffer.from(args[encIdx + 1], 'base64').toString('utf16le'), cmd);
+  assert.ok(Buffer.from(args[encIdx + 1], 'base64').toString('utf16le').endsWith(cmd), 'ends with the user command');
   assert.ok(!args.includes(cmd), 'raw command never reaches the remote shell');
   console.log('PASS ssh keeps $variables and pipes intact');
 }
@@ -53,6 +57,7 @@ async function testWinrmArgv() {
   assert.ok(decoded.includes("'pc13'"), 'decoded command contains host');
   assert.ok(decoded.includes("'S3cret!'"), 'password travels inside the encoded blob, not raw argv');
   assert.ok(!args.some((a) => a === 'S3cret!'), 'password never visible as plain argv');
+  assert.ok(decoded.includes('TrustedHosts'), 'decoded command explains the TrustedHosts fix');
   console.log('PASS winrm argv (encoded credentials)');
 }
 

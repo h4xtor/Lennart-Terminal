@@ -172,12 +172,14 @@ class TerminalManager extends EventEmitter {
       shellFile: file,
       cwd: resolvedCwd,
       buffer: '',
+      total: 0,          // chars ever received (buffer is capped, this is not)
       pty: ptyProcess,
     };
 
     this.sessions.set(session.id, session);
 
     ptyProcess.onData((data) => {
+      session.total += data.length;
       session.buffer = (session.buffer + data).slice(-MAX_BUFFER);
       this.emit('data', session.id, data);
     });

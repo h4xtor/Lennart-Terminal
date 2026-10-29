@@ -48,7 +48,11 @@ const DEFAULTS = {
 
   // embedded llama.cpp server settings (Settings → Model-indstillinger)
   localAI: {
-    ctx: 4096,          // context window passed as -c
+    // Context window passed as -c. The embedded assistant ships a full
+    // training compendium as its system prompt (buildPowerShellSystemPrompt
+    // in ai.js, ~2.5k tokens), so 8192 is the default — 4096 would leave
+    // too little room for the conversation itself.
+    ctx: 8192,
     threads: 0,         // 0 = auto (cores-1, max 4)
   },
 
@@ -111,7 +115,22 @@ class SettingsStore {
     this._migrateIntoPortable();
     this.data = this._load();
     this._migrateStaleProvider();
+    this._migrateLocalAiCtx();
     this._write();
+  }
+
+  /**
+   * v3.2: the embedded assistant got a full training compendium in its
+   * system prompt, and 4096 tokens no longer leaves room for a conversation
+   * on top of it. Raise ONLY saved ctx values that still sit on the old
+   * default (4096) — an explicit 2048 (weak PC) or 8192/16384 choice is the
+   * user's decision and stays untouched.
+   */
+  _migrateLocalAiCtx() {
+    const lai = this.data && this.data.localAI;
+    if (lai && Number(lai.ctx) === 4096) {
+      lai.ctx = 8192;
+    }
   }
 
   /**

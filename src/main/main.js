@@ -15,7 +15,8 @@ const fs = require('fs');
 const os = require('os');
 const SettingsStore = require('./store');
 const TerminalManager = require('./pty');
-const { chat, listModels, buildAgentSystemPrompt, buildPowerShellSystemPrompt, PROVIDERS, PROVIDER_GROUPS, listAgyModels, agyAvailable, runAgyAgent } = require('./ai');
+const { chat, listModels, buildChatSystemPrompt, PROVIDERS, PROVIDER_GROUPS, listAgyModels, agyAvailable } = require('./ai');
+const { createAnswerGuard } = require('./answer');
 const { AgentSession } = require('./agent');
 const { LocalAI, LOCAL_MODEL } = require('./localai');
 const { RemoteRunner, sshSetupCommand } = require('./remote');
@@ -29,6 +30,33 @@ const { Updater } = require('./updater');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
+
+/**
+ * The EXE is portable by default: settings, history and the offline AI live
+ * in a "Data" folder next to the program (perfect for a USB stick) — the
+ * job the old start-lennart-terminal.cmd did by setting LENNART_DATA_DIR.
+ *  - single-file portable EXE: electron-builder unpacks it to a temp folder
+ *    and tells us where the real .exe lives (PORTABLE_EXECUTABLE_DIR)
+ *  - unpacked/zip build: the folder of "Lennart Terminal.exe"
+ * A folder we cannot write to (f.eks. Program Files) falls back to %APPDATA%.
+ */
+function resolvePortableDataDir() {
+  if (process.env.LENNART_DATA_DIR) return;            // launcher / dev override
+  let base = process.env.PORTABLE_EXECUTABLE_DIR || '';
+  if (!base && app.isPackaged) base = path.dirname(process.execPath);
+  if (!base) return;                                    // `npm start` from source
+  const dir = path.join(base, 'Data');
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const probe = path.join(dir, '.write-test');
+    fs.writeFileSync(probe, 'ok');
+    fs.unlinkSync(probe);
+    process.env.LENNART_DATA_DIR = dir;
+  } catch {
+    /* read-only location → normal %APPDATA% storage */
+  }
+}
+resolvePortableDataDir();
 
 const settings = new SettingsStore();
 const ptyManager = new TerminalManager();
@@ -186,6 +214,10 @@ async function resolveLocalProvider(cfg) {
   return {
     ...cfg,
     provider: 'openai-compatible',
+    // Keep the embedded origin marked: chat() uses this to still apply the
+    // answer cap and the llama.cpp anti-repetition penalties after the
+    // provider rewrite above (otherwise a looping answer runs uncapped).
+    embeddedLocal: true,
     baseUrl: ensured.baseUrl,
     model: localAI.model.id,
     apiKey: 'local',
@@ -209,6 +241,7 @@ function createWindow() {
     minHeight: 600,
     backgroundColor: '#121317',
     title: 'Lennart Terminal',
+    icon: path.join(__dirname, '..', '..', 'build', 'icon.png'),
     titleBarStyle: 'hidden',
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
@@ -280,12 +313,17 @@ function isAdminSession() {
 function relaunchElevated() {
   // eslint-disable-next-line global-require
   const { spawn } = require('child_process');
-  const exe = process.execPath;
+  // Single-file portable EXE: process.execPath is the temp-unpacked copy —
+  // relaunch the real .exe the user double-clicked instead.
+  const exe = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
   // Elevated processes may start in a different working directory
   // (C:\Windows\system32), so "." as the app path would resolve to the
   // wrong folder and the new instance dies silently. Always pass the
-  // absolute app directory and pin -WorkingDirectory.
-  const appDir = path.join(__dirname, '..', '..');
+  // absolute app directory and pin -WorkingDirectory. A packaged EXE has
+  // its app inside app.asar — the working directory is the EXE's folder.
+  const appDir = app.isPackaged
+    ? path.dirname(exe)
+    : path.join(__dirname, '..', '..');
   // Drop the CDP debugging flag: the old process still holds that port when
   // the elevated one starts, and Electron exits when it cannot bind it.
   const args = process.argv.slice(1)
@@ -566,58 +604,89 @@ ipcMain.handle('ai:listModels', async (_e, cfg) => {
 });
 
 ipcMain.on('ai:chat', async (event, { id, messages, agentMode }) => {
+  const send = (channel, payload) => {
+    if (!event.sender.isDestroyed()) event.sender.send(channel, payload);
+  };
   let cfg = effectiveAiConfig();
   const isEmbeddedLocal = cfg.provider === 'lennart-local';
   try {
     cfg = await resolveLocalProvider(cfg);
   } catch (err) {
-    event.sender.send('ai:chat:error', {
-      id,
-      error: `Lokal AI kunne ikke starte: ${err.message || err}`,
-    });
+    send('ai:chat:error', { id, error: `Lokal AI kunne ikke starte: ${err.message || err}` });
     return;
   }
-  const safeMessages = Array.isArray(messages)
+  const all = Array.isArray(messages)
     ? messages.map((m) => ({
         role: m.role === 'assistant' ? 'assistant' : m.role === 'system' ? 'system' : 'user',
         content: typeof m.content === 'string' ? String(m.content).slice(0, 24000) : '',
-      }))
+      })).filter((m) => m.content)
     : [];
+  // Extra system messages from the renderer (f.eks. /help context) are merged
+  // into ONE system prompt: several chat templates reject a system message
+  // that is not the very first one.
+  const extraSystem = all.filter((m) => m.role === 'system').map((m) => m.content);
+  const convo = all.filter((m) => m.role !== 'system');
+  const users = convo.filter((m) => m.role === 'user');
+  const lastUser = users[users.length - 1];
+  const prevUser = users[users.length - 2];
 
   const ctrl = new AbortController();
   activeChats.set(id, ctrl);
+  let userAborted = false;
 
+  // The embedded model always gets its focused prompt; other providers get
+  // the assistant prompt when "system prompt i chat" (agentMode) is on.
+  // Both only carry the knowledge cards that match the question.
+  const basePrompt = (isEmbeddedLocal || agentMode)
+    ? buildChatSystemPrompt({
+        embedded: isEmbeddedLocal,
+        question: lastUser ? lastUser.content : '',
+        previous: prevUser ? prevUser.content : '',
+      })
+    : '';
+  const system = [basePrompt, ...extraSystem].filter(Boolean).join('\n\n') || null;
+
+  // Loop guard: stops a looping answer the moment it repeats itself
+  const guard = createAnswerGuard({
+    strict: isEmbeddedLocal,
+    onAbort: () => { try { ctrl.abort(); } catch { /* already done */ } },
+  });
+  ctrl.signal.addEventListener('abort', () => { if (!guard.stoppedLoop) userAborted = true; });
+
+  let finishReason = '';
+  let failure = null;
   try {
-    // The embedded model IS the PowerShell assistant — always use its prompt
-    // in chat mode; other providers keep the terminal agent prompt.
-    const system = isEmbeddedLocal
-      ? buildPowerShellSystemPrompt()
-      : (agentMode ? buildAgentSystemPrompt() : null);
-    let acc = ''; // full assistant answer, for the permanent history
-    const lastUser = [...safeMessages].reverse().find((m) => m.role === 'user');
-    await chat(cfg, safeMessages, {
+    const res = await chat(cfg, convo, {
       system,
       signal: ctrl.signal,
       onToken: (token) => {
-        acc += token;
-        if (!event.sender.isDestroyed()) {
-          event.sender.send('ai:chat:chunk', { id, token });
-        }
+        if (!guard.push(token)) return;
+        send('ai:chat:chunk', { id, token });
       },
     });
-    if (lastUser) {
-      historyStore.add({ type: 'ai', command: lastUser.content, output: acc });
-    }
-    event.sender.send('ai:chat:done', { id });
+    finishReason = (res && res.finishReason) || '';
   } catch (err) {
-    const aborted = err.name === 'AbortError';
-    event.sender.send(aborted ? 'ai:chat:done' : 'ai:chat:error', {
-      id,
-      ...(aborted ? {} : { error: String(err.message || err) }),
-    });
+    if (err.name !== 'AbortError') failure = err;
   } finally {
     activeChats.delete(id);
   }
+
+  if (failure && !guard.text) {
+    send('ai:chat:error', { id, error: String(failure.message || failure) });
+    return;
+  }
+  const final = guard.finish({ truncated: finishReason === 'length' });
+  if (lastUser && final.text) {
+    historyStore.add({ type: 'ai', command: lastUser.content, output: final.text });
+  }
+  send('ai:chat:done', {
+    id,
+    text: final.text,
+    runRequested: final.runRequested,
+    stoppedLoop: final.stoppedLoop,
+    truncated: final.truncated,
+    aborted: userAborted,
+  });
 });
 
 ipcMain.on('ai:chat:cancel', (_e, { id }) => {
@@ -700,17 +769,21 @@ function runInPty(sessionId, cmd, timeoutMs) {
       resolve(`[error: terminal session ${sessionId} not found — is the tab still open?]`);
       return;
     }
-    const before = s.buffer.length;
-    let lastLen = -1;
+    // The rolling buffer is capped (40k chars) — once full its LENGTH never
+    // changes, so measure progress with the uncapped counter instead
+    // (the old buffer.length logic returned "" for every agent step on a
+    // busy tab).
+    const before = s.total || 0;
+    let lastTotal = -1;
     let lastChange = Date.now();
     const start = Date.now();
 
     s.pty.write(cmd + '\r');
 
     const timer = setInterval(() => {
-      const len = s.buffer.length;
-      if (len !== lastLen) {
-        lastLen = len;
+      const total = s.total || 0;
+      if (total !== lastTotal) {
+        lastTotal = total;
         lastChange = Date.now();
       }
       const quietFor = Date.now() - lastChange;
@@ -718,8 +791,10 @@ function runInPty(sessionId, cmd, timeoutMs) {
       // done when: output quiet for 1.2s after at least 1.5s, or timeout
       if ((elapsed > 1500 && quietFor > 1200) || elapsed > timeoutMs) {
         clearInterval(timer);
-        const raw = s.buffer.slice(before);
+        const grown = (s.total || 0) - before;
+        const raw = grown <= 0 ? '' : s.buffer.slice(-Math.min(grown, s.buffer.length));
         resolve(raw
+          .replace(/\x1b\][^\x07]*\x07/g, '')
           .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')
           .replace(/\r/g, '')
           .trim());
