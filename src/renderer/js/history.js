@@ -19,7 +19,8 @@ async function loadHosts() {
   for (const h of hosts) {
     const el = document.createElement('button');
     el.className = 'host-item';
-    el.title = `${h.host} · ${(h.method || 'ssh').toUpperCase()} — klik for at åbne fjern-fane`;
+    el.dataset.hostId = h.id;
+    el.title = `${h.host} · ${(h.method || 'ssh').toUpperCase()} — klik for at åbne/lukke fjern-fanen`;
     el.innerHTML = `
       <span class="dot ok"></span>
       <span class="name">${escapeHtml(h.name || h.host)}</span>
@@ -34,6 +35,8 @@ async function loadHosts() {
     el.addEventListener('click', () => openRemoteTab(h));
     list.appendChild(el);
   }
+  // Re-apply the red active state after the list is rebuilt.
+  if (typeof syncHostHighlights === 'function') syncHostHighlights();
 }
 
 function openHostDialog(existing) {
@@ -121,6 +124,15 @@ function initHostUI() {
 // ---------------------------------------------------------------------------
 
 function openRemoteTab(host) {
+  if (typeof remoteTabForHost !== 'function') return;
+  const existing = remoteTabForHost(host.id);
+  if (existing) {
+    // Second click on the active host closes its tab (and clears the red
+    // highlight); clicking an inactive open host brings it back.
+    if (existing.tabId === activeTabId) closeTab(existing.tabId);
+    else activateTab(existing.tabId);
+    return;
+  }
   if (typeof createRemoteTab === 'function') createRemoteTab(host);
 }
 

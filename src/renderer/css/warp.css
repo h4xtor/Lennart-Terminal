@@ -140,6 +140,20 @@ kbd {
 }
 .tb-btn:hover { background: var(--bg-hover); color: var(--text); }
 .tb-close:hover { background: #c4342c; color: #fff; }
+/* History/settings get a visible button surface; window controls stay flat. */
+#btn-history, #btn-settings {
+  width: 34px;
+  height: 26px;
+  margin: 7px 2px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-panel);
+  color: var(--text);
+}
+#btn-history:hover, #btn-settings:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
 
 /* ============ Layout ============ */
 
@@ -185,19 +199,28 @@ kbd {
 .side-section { display: flex; flex-direction: column; gap: 3px; }
 .side-btn {
   text-align: left;
-  background: transparent;
-  border-color: transparent;
+  /* A visible surface and border makes it obvious these are clickable,
+     instead of blending into the sidebar background. */
+  background: var(--bg-panel);
+  border-color: var(--border);
   padding: 7px 10px;
   border-radius: 6px;
   color: var(--text-dim);
 }
-.side-btn:hover { background: var(--bg-hover); color: var(--text); }
+.side-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.side-btn:active { background: var(--bg-active); }
 .side-btn.primary {
   background: var(--accent-soft);
-  border-color: transparent;
-  color: #b3a8ff;
+  border-color: rgba(124, 108, 255, 0.45);
+  color: #c9c0ff;
 }
 .side-btn.primary:hover { background: rgba(124, 108, 255, 0.28); }
+#btn-add-host { border-style: dashed; background: transparent; }
+#btn-add-host:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
 .side-btn .ico { margin-right: 6px; }
 .side-footer {
   margin-top: auto;
@@ -270,14 +293,17 @@ kbd {
 }
 .tab .tab-close:hover { color: var(--text); background: var(--bg-active); }
 #btn-new-tab-inline {
-  width: 30px;
-  border: none;
-  background: transparent;
-  color: var(--text-dim);
+  width: 28px;
+  height: 26px;
+  margin: 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text);
   font-size: 15px;
   padding: 0;
 }
-#btn-new-tab-inline:hover { background: var(--bg-hover); color: var(--text); }
+#btn-new-tab-inline:hover { background: var(--bg-hover); border-color: var(--accent); }
 
 /* ============ Content split ============ */
 
@@ -708,12 +734,13 @@ kbd {
   margin-bottom: 4px;
   max-height: 78px;
   overflow-y: auto;
+  overflow-x: hidden;
   scrollbar-width: thin;
 }
 .host-item {
   display: flex; align-items: center; gap: 8px;
-  padding: 6px 10px; border-radius: 8px; border: 1px solid transparent;
-  background: transparent; color: var(--text); cursor: pointer; text-align: left;
+  padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg-panel); color: var(--text); cursor: pointer; text-align: left;
   font-size: 12.5px; font-family: inherit; width: 100%;
 }
 .host-item:hover { background: var(--bg-hover); border-color: var(--border); }
@@ -931,6 +958,17 @@ input[type="text"]:focus, input[type="password"]:focus, select:focus, textarea:f
 /* Host rows slide slightly toward the pointer on hover */
 .host-item { transition: background 120ms ease, border-color 120ms ease, transform 80ms ease; }
 .host-item:hover { border-color: rgba(124, 108, 255, .45); transform: translateX(2px); }
+
+/* Active host: a clear red toggle while its remote tab is open. Clicking the
+   host again closes the tab and removes the red state. */
+.host-item.active,
+.host-item.active:hover {
+  background: rgba(248, 113, 113, .15);
+  border-color: var(--red);
+  transform: none;
+}
+.host-item.active .name { color: var(--red); font-weight: 600; }
+.host-item.active .dot { box-shadow: 0 0 6px rgba(248, 113, 113, .65); }
 
 /* Status dot glows when healthy */
 .status-dot.ok { box-shadow: 0 0 6px rgba(74, 222, 128, .7); }
@@ -1216,13 +1254,16 @@ input[type="text"]:focus, input[type="password"]:focus, select:focus, textarea:f
 
 #btn-copy-term {
   width: auto;
+  height: 26px;
+  margin: 2px 0 0 2px;
   padding: 0 10px;
   font-size: 11px;
-  border: none;
-  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
   color: var(--text-dim);
 }
-#btn-copy-term:hover { background: var(--bg-hover); color: var(--text); }
+#btn-copy-term:hover { background: var(--bg-hover); border-color: var(--border-strong); color: var(--text); }
 #btn-copy-term.ok { color: var(--green); }
 
 /* ---- Settings: section nav chips ---- */

@@ -312,6 +312,7 @@ function activateTab(tabId) {
     t.el.style.display = id === tabId ? (t.remote ? 'flex' : 'block') : 'none';
     t.tabEl?.classList.toggle('active', id === tabId);
   }
+  syncHostHighlights();
   // Give the DOM a tick to lay out before fitting
   requestAnimationFrame(() => tab.fit());
   const input = document.getElementById('prompt-input');
@@ -336,6 +337,24 @@ function activeTab() {
   return termTabs.get(activeTabId) || null;
 }
 
+/** Find the remote tab belonging to a saved host. */
+function remoteTabForHost(hostId) {
+  if (!hostId) return null;
+  for (const t of termTabs.values()) {
+    if (t.remote && t.hostId === hostId) return t;
+  }
+  return null;
+}
+
+/** Red-highlight the host whose remote tab is active; clear all others. */
+function syncHostHighlights() {
+  const tab = activeTab();
+  const hostId = tab && tab.remote ? tab.hostId : null;
+  document.querySelectorAll('#host-list .host-item').forEach((el) => {
+    el.classList.toggle('active', Boolean(hostId) && el.dataset.hostId === hostId);
+  });
+}
+
 /**
  * Remote host tab: a read-only-ish xterm view where commands run on a LAN
  * host over SSH/WinRM. Output streams back via 'remote:data'. The command
@@ -346,6 +365,7 @@ function createRemoteTab(host) {
     tabId: `tab_${++tabCounter}`,
     remote: true,
     host,
+    hostId: host.id || host.host,
     sessionId: null,
     dead: false,
     busy: false,

@@ -31,7 +31,6 @@ async function bootApp() {
   document.getElementById('btn-minimize').addEventListener('click', () => window.lennart.minimize());
   document.getElementById('btn-maximize').addEventListener('click', () => window.lennart.maximize());
   document.getElementById('btn-close').addEventListener('click', () => window.lennart.closeWindow());
-  document.getElementById('btn-devtools').addEventListener('click', () => window.lennart.openDevTools());
   document.getElementById('btn-settings').addEventListener('click', openSettings);
 
   document.getElementById('btn-new-tab').addEventListener('click', () => newTab());

@@ -443,6 +443,7 @@ async function main() {
       historyTitle: ((document.querySelector('#history-dialog h2') || {}).textContent || '').trim(),
       settingsTitleAttr: (document.getElementById('btn-settings') || {}).title || '',
       historyTitleAttr: (document.getElementById('btn-history') || {}).title || '',
+      devtoolsButton: !!document.getElementById('btn-devtools'),
       cmdLabel: ((document.querySelector('.shell-btn[data-shell="cmd"]') || {}).textContent || '').trim(),
       newTabLabel: ((document.getElementById('btn-new-tab') || {}).textContent || '').trim(),
       promptHint: ((document.getElementById('prompt-hint') || {}).textContent || '').trim(),
@@ -464,6 +465,7 @@ async function main() {
     assert(ui.historyTitle.includes('Historik'), `historikvinduet er på dansk (${ui.historyTitle})`);
     assert(ui.settingsTitleAttr === 'Indstillinger (Ctrl+,)', `tandhjulet har dansk værktøjstip`);
     assert(ui.historyTitleAttr === 'Historik (Ctrl+H)', `historik-knappen har dansk værktøjstip`);
+    assert(!ui.devtoolsButton, 'DevTools-knappen er fjernet fra topbjælken');
     assert(ui.cmdLabel === 'Kommandoprompt', `cmd-knappen hedder "Kommandoprompt" (${ui.cmdLabel})`);
     assert(!ui.cmdClipped, 'kommandoprompt-label er ikke klippet');
     assert(ui.newTabLabel.includes('Ny fane'), `ny-fane-knappen er oversat (${ui.newTabLabel})`);
@@ -628,13 +630,29 @@ async function main() {
     await waitForExpr(cdp, "!document.body.classList.contains('theme-lys')", 10000, 'standardtema');
     await cdp.evaluate('closeSettings(); true');
 
-    // ---- 7. remote tabs fill the pane ----
+    // ---- 7. remote host toggle + full-height terminal ----
+    // Save a temporary host and open it from the sidebar: this exercises the
+    // real click path, the red active state and the click-again toggle.
     // Regression: activateTab() forced display:block on every tab, so a remote
     // tab's flex column collapsed and left a black void below the terminal.
-    await cdp.evaluate(`(() => {
-      window.createRemoteTab({ id: 'smoke-remote', name: 'Smoke Remote', host: '127.0.0.1', method: 'ssh' });
+    await cdp.evaluate(`(async () => {
+      await window.lennart.hostsSave({ id: 'smoke-host', name: 'Smoke Host', host: '127.0.0.1', method: 'ssh' });
+      await loadHosts();
       return true;
     })()`);
+    await waitForExpr(
+      cdp,
+      `!!document.querySelector('.host-item[data-host-id="smoke-host"]')`,
+      5000,
+      'smoke-vært',
+    );
+    await cdp.evaluate(`document.querySelector('.host-item[data-host-id="smoke-host"]').click(); true`);
+    await waitForExpr(
+      cdp,
+      `!!activeTab() && activeTab().remote && document.querySelector('.host-item[data-host-id="smoke-host"]').classList.contains('active')`,
+      5000,
+      'rød aktiv vært',
+    );
     await sleep(700);
     const remoteLayout = JSON.parse(await cdp.evaluate(`JSON.stringify((() => {
       const tab = activeTab();
@@ -657,8 +675,14 @@ async function main() {
     assert(Math.abs(remoteLayout.viewportH - remoteLayout.xtermH) <= 2,
       `viewporten fylder terminalen (${remoteLayout.viewportH}/${remoteLayout.xtermH})`);
     pass('Fjern-fanen fylder hele panelet');
-    await cdp.evaluate('closeTab(activeTabId); true');
-    await waitForExpr(cdp, '!activeTab().remote', 5000, 'fjern-fane lukket');
+    await cdp.evaluate(`document.querySelector('.host-item[data-host-id="smoke-host"]').click(); true`);
+    await waitForExpr(
+      cdp,
+      `!activeTab().remote && !document.querySelector('.host-item[data-host-id="smoke-host"]').classList.contains('active')`,
+      5000,
+      'vært slået fra',
+    );
+    pass('Rød vært kan slås fra igen');
 
     // ---- 8. no renderer errors ----
     await sleep(800);
