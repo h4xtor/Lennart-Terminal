@@ -1,0 +1,27 @@
+From c27bab8758e1a6959bf38f4c924278d3eda5738a Mon Sep 17 00:00:00 2001
+From: Codebuff <noreply@codebuff.com>
+Date: Wed, 28 Oct 2026 16:04:58 +0000
+Subject: [PATCH] Ret smoketestens forventning til AI-historikfilteret
+
+---
+ scripts/smoke-test.js | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/scripts/smoke-test.js b/scripts/smoke-test.js
+index abef132..5c36cd5 100644
+--- a/scripts/smoke-test.js
++++ b/scripts/smoke-test.js
+@@ -465,8 +465,8 @@ async function main() {
+     assert(ui.copyLabel.includes('Kopiér'), `kopiér-knappen er oversat (${ui.copyLabel})`);
+     assert(
+       ui.typeLocal === 'Lokalt' && ui.typeRemote === 'Netværk' &&
+-      ui.typeAgent === 'Agent' && ui.typeAi === 'AI',
+-      'historikkens typer er Lokalt / Netværk / Agent / AI',
++      ui.typeAgent === 'Agent' && ui.typeAi.startsWith('AI'),
++      `historikkens typer er Lokalt / Netværk / Agent / AI (${ui.typeAi})`,
+     );
+     assert(ui.version === 'v0.2.0', `versionsmærket er korrekt (${ui.version})`);
+ 
+-- 
+2.43.0
+

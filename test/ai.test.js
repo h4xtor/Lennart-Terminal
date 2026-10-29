@@ -89,6 +89,16 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
+  if (req.method === 'POST' && req.url === '/flush/chat/completions') {
+    req.on('data', () => {});
+    req.on('end', () => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      // No trailing blank line: the final token must still reach the client.
+      res.write('data: {"choices":[{"delta":{"content":"tail"}}]}');
+      res.end();
+    });
+    return;
+  }
   if (req.method === 'POST' && req.url === '/v1/chat/completions') {
     let body = '';
     req.on('data', (c) => { body += c; });
@@ -233,6 +243,18 @@ async function main() {
   assert.strictEqual(cutRes.finishReason, 'length', 'finish_reason "length" is reported (CRLF framing + no trailing blank line)');
   console.log('PASS openai-compatible listModels + streaming chat');
 
+  // --- SSE stream without the final blank line ---
+  const flushCfg = {
+    provider: 'openai-compatible',
+    model: 'mock-coder',
+    baseUrl: `http://127.0.0.1:${PORT}/flush`,
+  };
+  let flushText = '';
+  await chat(flushCfg, [{ role: 'user', content: 'hi' }], {
+    onToken: (t) => { flushText += t; },
+  });
+  assert.strictEqual(flushText, 'tail', `SSE tail token lost: ${flushText}`);
+  console.log('PASS openai-compatible SSE without trailing blank line');
   // --- Ollama anti-repetition options must reach the server ---
   assert.ok(lastOllamaOptions, 'mock captured ollama options');
   assert.strictEqual(lastOllamaOptions.repeat_penalty, 1.15, 'ollama gets repeat_penalty');
@@ -306,6 +328,12 @@ async function main() {
   const antModels = await listModels({ provider: 'anthropic', baseUrl: `http://127.0.0.1:${PORT}/anthropic/v1`, apiKey: 'sk-ant-test' });
   assert.ok(antModels.some((m) => m.id === 'claude-sonnet-4-6'), 'anthropic /models listing works');
   console.log('PASS anthropic model listing');
+  await assert.rejects(
+    () => listModels({ provider: 'anthropic', baseUrl: `http://127.0.0.1:${PORT}/anthropic/v1`, apiKey: 'wrong' }),
+    /401/,
+    'a rejected key must not be reported as a healthy connection',
+  );
+  console.log('PASS anthropic authentication failure');
 
   // --- OpenRouter (OpenAI protocol over cloud URL) ---
   const orCfg = { provider: 'openrouter', model: 'anthropic/claude-sonnet-4.6', baseUrl: `http://127.0.0.1:${PORT}/or/api/v1`, apiKey: 'sk-or-test' };

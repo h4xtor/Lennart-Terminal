@@ -68,7 +68,8 @@ function terminalThemeFor(preset, accent) {
 function applyTerminalTheme(preset, accent) {
   CURRENT_TERM_THEME = terminalThemeFor(preset, accent);
   for (const t of termTabs.values()) {
-    t.xterm?.setOptions({ theme: CURRENT_TERM_THEME });
+    // xterm 6 removed setOptions(); the theme is a live option on .options.
+    if (t.xterm && t.xterm.options) t.xterm.options.theme = CURRENT_TERM_THEME;
   }
 }
 
@@ -116,6 +117,7 @@ class TerminalTab {
     this.fitAddon = null;
     this.el = null;
     this.tabEl = null;
+    this.unsubs = [];
   }
 
   async open() {
@@ -214,7 +216,7 @@ class TerminalTab {
     this.tabEl = document.createElement('div');
     this.tabEl.className = 'tab';
     this.tabEl.innerHTML = `<span class="tab-title">${escapeHtml(this.shellName || this.shell || 'Shell')}</span>
-      <button class="tab-close" title="Close tab">&#10005;</button>`;
+      <button class="tab-close" title="Luk fane">&#10005;</button>`;
     this.tabEl.addEventListener('click', () => activateTab(this.tabId));
     this.tabEl.querySelector('.tab-close').addEventListener('click', (e) => {
       e.stopPropagation();
@@ -310,6 +312,7 @@ function activateTab(tabId) {
     t.el.style.display = id === tabId ? (t.remote ? 'flex' : 'block') : 'none';
     t.tabEl?.classList.toggle('active', id === tabId);
   }
+  syncHostHighlights();
   // Give the DOM a tick to lay out before fitting
   requestAnimationFrame(() => tab.fit());
   const input = document.getElementById('prompt-input');
@@ -334,6 +337,24 @@ function activeTab() {
   return termTabs.get(activeTabId) || null;
 }
 
+/** Find the remote tab belonging to a saved host. */
+function remoteTabForHost(hostId) {
+  if (!hostId) return null;
+  for (const t of termTabs.values()) {
+    if (t.remote && t.hostId === hostId) return t;
+  }
+  return null;
+}
+
+/** Red-highlight the host whose remote tab is active; clear all others. */
+function syncHostHighlights() {
+  const tab = activeTab();
+  const hostId = tab && tab.remote ? tab.hostId : null;
+  document.querySelectorAll('#host-list .host-item').forEach((el) => {
+    el.classList.toggle('active', Boolean(hostId) && el.dataset.hostId === hostId);
+  });
+}
+
 /**
  * Remote host tab: a read-only-ish xterm view where commands run on a LAN
  * host over SSH/WinRM. Output streams back via 'remote:data'. The command
@@ -344,6 +365,7 @@ function createRemoteTab(host) {
     tabId: `tab_${++tabCounter}`,
     remote: true,
     host,
+    hostId: host.id || host.host,
     sessionId: null,
     dead: false,
     busy: false,
@@ -351,6 +373,7 @@ function createRemoteTab(host) {
     fitAddon: null,
     el: null,
     tabEl: null,
+    unsubs: [],
   };
 
   const container = document.getElementById('terminal-container');

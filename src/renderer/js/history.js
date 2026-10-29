@@ -19,7 +19,8 @@ async function loadHosts() {
   for (const h of hosts) {
     const el = document.createElement('button');
     el.className = 'host-item';
-    el.title = `${h.host} · ${h.method.toUpperCase()} — klik for at åbne fjern-fane`;
+    el.dataset.hostId = h.id;
+    el.title = `${h.host} · ${(h.method || 'ssh').toUpperCase()} — klik for at åbne/lukke fjern-fanen`;
     el.innerHTML = `
       <span class="dot ok"></span>
       <span class="name">${escapeHtml(h.name || h.host)}</span>
@@ -34,6 +35,8 @@ async function loadHosts() {
     el.addEventListener('click', () => openRemoteTab(h));
     list.appendChild(el);
   }
+  // Re-apply the red active state after the list is rebuilt.
+  if (typeof syncHostHighlights === 'function') syncHostHighlights();
 }
 
 function openHostDialog(existing) {
@@ -100,7 +103,7 @@ function initHostUI() {
     const res = await window.lennart.remoteTest(hostFromForm());
     el.className = res.ok ? 'ok' : 'err';
     const out = (res.output || '').trim().split('\n').filter(Boolean).pop() || '';
-    el.textContent = res.ok ? `OK — svar: ${out}` : `Fejlede: ${out || 'timeout'}`;
+    el.textContent = res.ok ? `OK — svar: ${out}` : `Fejlede: ${out || 'tidsudløb'}`;
   });
   document.getElementById('btn-show-ssh-setup').addEventListener('click', async () => {
     const { command } = await window.lennart.hostsSshSetupCommand();
@@ -121,12 +124,28 @@ function initHostUI() {
 // ---------------------------------------------------------------------------
 
 function openRemoteTab(host) {
+  if (typeof remoteTabForHost !== 'function') return;
+  const existing = remoteTabForHost(host.id);
+  if (existing) {
+    // Second click on the active host closes its tab (and clears the red
+    // highlight); clicking an inactive open host brings it back.
+    if (existing.tabId === activeTabId) closeTab(existing.tabId);
+    else activateTab(existing.tabId);
+    return;
+  }
   if (typeof createRemoteTab === 'function') createRemoteTab(host);
 }
 
 // ---------------------------------------------------------------------------
 // History dialog
 // ---------------------------------------------------------------------------
+
+const HISTORY_TYPE_LABELS = {
+  local: 'Lokalt',
+  remote: 'Netværk',
+  agent: 'Agent',
+  ai: 'AI',
+};
 
 async function loadHistoryList() {
   const listEl = document.getElementById('history-list');
@@ -147,7 +166,7 @@ async function loadHistoryList() {
     const host = r.host && r.host !== 'local' ? escapeHtml(r.host) : '';
     el.innerHTML = `
       <div class="row1">
-        <span class="h-type ${escapeHtml(r.type)}">${escapeHtml(r.type)}</span>
+        <span class="h-type ${escapeHtml(r.type)}">${escapeHtml(HISTORY_TYPE_LABELS[r.type] || r.type)}</span>
         ${host ? `<span class="h-host">${host}</span>` : ''}
         <span class="h-time">${escapeHtml(time)}</span>
       </div>

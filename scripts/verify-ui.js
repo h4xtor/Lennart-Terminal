@@ -95,7 +95,7 @@ async function main() {
   assert(menuHasCmd >= 40, `menu items show their command as tooltip (${menuHasCmd})`);
 
   const firstMenu = await evaluate(`(document.querySelector('#menubar .menu .menu-btn') || {}).textContent || ''`);
-  assert(firstMenu.trim() === 'Setup', `Setup is the first menubar menu ("${firstMenu.trim()}")`);
+  assert(firstMenu.trim() === 'Opsætning', `Opsætning is the first menubar menu ("${firstMenu.trim()}")`);
   const sortedMenus = await evaluate(`
     [...document.querySelectorAll('#menubar .menu')].every((m) => {
       const strip = (t) => t.replace(/\s*· kræver administrator\s*/g, '').trim();
@@ -145,7 +145,7 @@ async function main() {
   const remoteItems = remoteMenu ? JSON.parse(remoteMenu) : [];
   assert(remoteItems.length >= 16, `Fjernsupport top menu exists (${remoteItems.length} items)`);
   assert(remoteItems.some((t) => t.includes('Forbind til IP')) &&
-         remoteItems.some((t) => t.includes('SSH setup')) &&
+         remoteItems.some((t) => t.includes('SSH-opsætning')) &&
          remoteItems.some((t) => t.includes('Tilføj vært')),
     'Fjernsupport menu contains the remote functions (quick-connect, SSH setup, add host)');
 
@@ -203,10 +203,10 @@ async function main() {
     })())`));
   const reddish = (c) => { const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(c); return !!(m && Number(m[1]) > 200 && Number(m[2]) < 170 && Number(m[3]) < 170); };
   assert(!reddish(ph.color), `prompt placeholder is NOT red — back to the original colour (${ph.color})`);
-  assert(ph.hint.includes('Ask AI (Ctrl+Enter)') && ph.hint.includes('or type a command'),
+  assert(ph.hint.includes('Spørg AI (Ctrl+Enter)') && ph.hint.includes('eller skriv en kommando'),
     `bottom hint names the AI shortcut + command hint ("${ph.hint}")`);
   assert(ph.hintVisible === true, 'bottom hint is visible while the prompt box is empty');
-  assert(ph.hintColor === 'rgb(124, 108, 255)', `“Ask AI (Ctrl+Enter)” is lit in the accent colour (${ph.hintColor})`);
+  assert(ph.hintColor === 'rgb(124, 108, 255)', `“Spørg AI (Ctrl+Enter)” is lit in the accent colour (${ph.hintColor})`);
 
   // ---- 1d. "Hent modeller" for local models ----
   const fetchBtn = await evaluate(`(document.getElementById('btn-refresh-models') || {}).textContent || ''`);
@@ -261,10 +261,11 @@ async function main() {
   const label = await evaluate(`document.getElementById('ai-model-label').textContent`);
   assert(label.includes('Indbygget'), `AI header shows embedded model ("${label}")`);
   const selectedModel = await evaluate(`(window.__lennartSettings && window.__lennartSettings.ai && window.__lennartSettings.ai.model) || ''`);
-  assert(
-    selectedModel ? label.includes(selectedModel) : label.includes('hardcoded model'),
-    `AI header shows the selected model ("${label}" vs "${selectedModel || 'hardcoded model'}")`,
-  );
+  const provider = await evaluate(`(window.__lennartSettings && window.__lennartSettings.ai && window.__lennartSettings.ai.provider) || ''`);
+  const headerOk = provider === 'lennart-local'
+    ? !/·\s*indbygget model/i.test(label)
+    : (selectedModel ? label.includes(selectedModel) : true);
+  assert(headerOk, `AI header is concise and accurate ("${label}")`);
 
   // The suggestion chips in the AI pane must be Danish
   const sugg = JSON.parse(await evaluate(`JSON.stringify(

@@ -55,6 +55,9 @@ async function testEnsureFailsFastWithoutDownloads(tmpRoot) {
     () => ai.ensure({ allowDownload: false }),
     /ikke downloadet/i,
   );
+  const st = ai.status();
+  assert.strictEqual(st.state, 'error', 'a failed ensure must not stay in "starting"');
+  assert.ok(/ikke downloadet/i.test(st.lastError), 'the failure reason is exposed to the UI');
   console.log('PASS ensure fails fast with allowDownload=false');
 }
 

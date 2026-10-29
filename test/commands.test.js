@@ -18,6 +18,8 @@ const ALLOWED_ACTIONS = new Set([
   'ai-help', 'github-actions', 'about',
   // v0.3.1: Fjernsupport menu + elevation
   'remote-connect', 'run-as-admin',
+  // GitHub update check in the Setup menu / gold version badge
+  'check-updates',
 ]);
 
 function testTwentyNetworkCommands() {

@@ -133,6 +133,15 @@ function downloadFile(url, destFile, onProgress) {
   const maxRedirects = 5;
   return new Promise((resolve, reject) => {
     let redirectsLeft = maxRedirects;
+    let settled = false;
+    const partFile = destFile + '.part';
+
+    const finish = (err) => {
+      if (settled) return;
+      settled = true;
+      if (err) reject(err);
+      else resolve(destFile);
+    };
 
     const get = (target) => {
       https.get(target, { headers: { 'User-Agent': 'LennartTerminal' } }, (res) => {
@@ -140,7 +149,7 @@ function downloadFile(url, destFile, onProgress) {
         if (res.statusCode >= 300 && res.statusCode < 400 && loc) {
           res.resume();
           if (redirectsLeft-- <= 0) {
-            reject(new Error('For mange redirects'));
+            finish(new Error('For mange redirects'));
             return;
           }
           get(new URL(loc, target).toString());
@@ -148,27 +157,39 @@ function downloadFile(url, destFile, onProgress) {
         }
         if (res.statusCode !== 200) {
           res.resume();
-          reject(new Error(`Download fejlede: HTTP ${res.statusCode}`));
+          finish(new Error(`Download fejlede: HTTP ${res.statusCode}`));
           return;
         }
         const total = Number(res.headers['content-length'] || 0);
         let got = 0;
-        const out = fs.createWriteStream(destFile + '.part');
+        const out = fs.createWriteStream(partFile);
+
+        // A dropped connection used to leave the promise pending forever (or
+        // emit an unhandled stream error and crash the main process).
+        const failDownload = (err) => {
+          try { out.destroy(); } catch { /* already closed */ }
+          try { fs.unlinkSync(partFile); } catch { /* nothing to clean up */ }
+          finish(err);
+        };
+
         res.on('data', (chunk) => {
           got += chunk.length;
           if (onProgress) onProgress({ got, total });
         });
+        res.on('error', failDownload);
+        res.on('aborted', () => failDownload(new Error('Download blev afbrudt')));
         res.pipe(out);
         out.on('finish', () => {
+          if (settled) return;
           try {
-            fs.renameSync(destFile + '.part', destFile);
-            resolve(destFile);
+            fs.renameSync(partFile, destFile);
+            finish();
           } catch (err) {
-            reject(err);
+            failDownload(err);
           }
         });
-        out.on('error', reject);
-      }).on('error', reject);
+        out.on('error', failDownload);
+      }).on('error', (err) => finish(err));
     };
 
     get(url);
@@ -297,6 +318,20 @@ class LocalAI {
     this.state = 'starting';
     this.lastError = '';
 
+    try {
+      return await this._ensureInner(allowDownload);
+    } catch (err) {
+      // A failed download used to leave the state at "starting" forever, so the
+      // UI kept saying "henter…" with no hint about what went wrong.
+      if (this.state !== 'running') {
+        this.state = 'error';
+        this.lastError = String(err.message || err);
+      }
+      throw err;
+    }
+  }
+
+  async _ensureInner(allowDownload) {
     let bin = this.paths().bin;
     let model = this.paths().model;
 
@@ -329,16 +364,35 @@ class LocalAI {
       let settled = false;
       const deadline = Date.now() + 180000; // first load can be slow from USB HDD
 
-      this.child.once('exit', (code) => {
+      let pollTimer = null;
+      const fail = (message) => {
         if (settled) return;
         settled = true;
         clearInterval(pollTimer);
         this.state = 'error';
-        this.lastError = `llama-server afsluttede med kode ${code}`;
-        reject(new Error(this.lastError));
+        this.lastError = message;
+        reject(new Error(message));
+      };
+
+      this.child.once('exit', (code) => {
+        // A crash AFTER startup must not leave status() claiming "running".
+        if (settled) {
+          this.child = null;
+          if (this.state === 'running') {
+            this.state = 'error';
+            this.lastError = `llama-server stoppede uventet (kode ${code})`;
+          }
+          return;
+        }
+        fail(`llama-server afsluttede med kode ${code}`);
+      });
+      // Without this listener a spawn failure (missing binary, permissions)
+      // was an uncaught EventEmitter error and ensure() never settled.
+      this.child.once('error', (err) => {
+        fail(`Kunne ikke starte llama-server: ${err.message || err}`);
       });
 
-      const pollTimer = setInterval(() => {
+      pollTimer = setInterval(() => {
         if (settled) return;
         httpGetJson(healthUrl(this.port), 1200)
           .then((h) => {
@@ -351,11 +405,8 @@ class LocalAI {
           })
           .catch(() => { /* not ready yet */ });
         if (Date.now() > deadline && !settled) {
-          settled = true;
-          clearInterval(pollTimer);
-          this.state = 'error';
-          this.lastError = 'lokal AI-server svarer ikke (timeout 180s)';
-          reject(new Error(this.lastError));
+          try { this.child.kill(); } catch { /* already dead */ }
+          fail('lokal AI-server svarer ikke (timeout 180s)');
         }
       }, 700);
     });

@@ -13,6 +13,8 @@ const aiState = {
   mode: 'chat',           // 'chat' | 'agent'
   agentRunning: false,
   agentId: null,
+  agentEventsBeforeStart: [],
+  agentStopRequested: false,
   stickToBottom: true,    // auto-scroll while the user is at the bottom
 };
 
@@ -74,8 +76,11 @@ function initAiPanel() {
   });
 
   window.lennart.onAgentEvent(({ id, event }) => {
-    if (id !== aiState.agentId) return;
-    renderAgentEvent(event);
+    if (aiState.agentRunning && !aiState.agentId) {
+      aiState.agentEventsBeforeStart.push({ id, event });
+      return;
+    }
+    if (id === aiState.agentId) renderAgentEvent(event);
   });
 
   setMode('chat');
@@ -180,8 +185,8 @@ async function buildHelpContext() {
   }
 
   lines.push(`AI: ${s.ai?.provider || '?'} · ${s.ai?.model || 'indbygget standardmodel'} · auto-udfør: ${s.aiAutoRun === false ? 'fra' : 'til'} · bekræftelse før ødelæggende: ${s.confirmDestructive === false ? 'fra' : 'til'}.`);
-  lines.push('Appen: Lennart Terminal — 20 netværksknapper i sidebar, dropdown-menuer øverst (Setup først), quick-connect til LAN-IP (SSH eller WinRM), AI-chat til højre som kan udføre kommandoer, historik (Ctrl+H), fjernfaner der kører kommandoer på andre PC’er.');
-  lines.push('Genveje: Ctrl+T ny fane · Ctrl+J AI-panel · Ctrl+H historik · Ctrl+, setup · Ctrl+Shift+C kopiér markering.');
+  lines.push('Appen: Lennart Terminal — 20 netværksknapper i sidebar, dropdown-menuer øverst (Opsætning først), quick-connect til LAN-IP (SSH eller WinRM), AI-chat til højre som kan udføre kommandoer, historik (Ctrl+H), fjernfaner der kører kommandoer på andre PC’er.');
+  lines.push('Genveje: Ctrl+T ny fane · Ctrl+J AI-panel · Ctrl+H historik · Ctrl+, opsætning · Ctrl+Shift+C kopiér markering.');
   lines.push('Svar på dansk og struktureret: (1) hvor personen står, (2) 2-4 sandsynlige årsager, (3) konkrete løsninger — giv kommandoer i ```powershell-kodeblokke.');
 
   return lines.join('\n\n');
@@ -196,7 +201,7 @@ async function sendHelpRequest(text) {
   appendMessageEl('user', text);
   aiState.helpContext = [
     'Du er Lennart Terminals AI-assistent. Brugeren skrev "/help" i appen — det er IKKE et ønske om at køre PowerShell-kommandoen "help".',
-    'Giv ENDIg ikke kun én kommando: lever en fejlsøgningsdiagnose.',
+    'Giv ikke kun én kommando: lever en fejlsøgningsdiagnose.',
     'Kontekst for hvor personen står:',
     ctx,
     '',
@@ -227,20 +232,20 @@ async function localHelpMarkdown(err) {
     where || '- (kontekst ikke tilgængelig endnu)',
     '',
     '**Genveje**',
-    '- `Ctrl+T` ny fane · `Ctrl+J` AI-panel · `Ctrl+H` historik · `Ctrl+,` Setup · `Ctrl+Shift+C` kopiér markering',
+    '- `Ctrl+T` ny fane · `Ctrl+J` AI-panel · `Ctrl+H` historik · `Ctrl+,` Opsætning · `Ctrl+Shift+C` kopiér markering',
     '- I prompt-boksen nederst: `Enter` = kør kommandoen · `Ctrl+Enter` = spørg AI-en',
     '',
     '**Tjek først**',
-    '1. Indbygget AI: `Get-Process llama-server` og `(Invoke-WebRequest -UseBasicParsing http://127.0.0.1:9601/health).Content` — starter den ikke, åbn **Setup → Hent modeller**.',
+    '1. Indbygget AI: `Get-Process llama-server` og `(Invoke-WebRequest -UseBasicParsing http://127.0.0.1:9601/health).Content` — starter den ikke, åbn **Opsætning → Hent modeller**.',
     '2. Internet: `ping 1.1.1.1 -n 4` — API-modeller kræver forbindelse; den indbyggede kører offline.',
-    '3. Fjern-PC: `Test-NetConnection <IP> -Port 22` — slå SSH til på mål-PC’en via **Setup → “Slå SSH til”** (admin), eller WinRM med `Enable-PSRemoting -Force`.',
+    '3. Fjern-PC: `Test-NetConnection <IP> -Port 22` — slå SSH til på mål-PC’en via **Opsætning → “Slå SSH til”** (admin), eller WinRM med `Enable-PSRemoting -Force`.',
     '4. Kommandoer køres ikke? Se om fanen er en fjern-fane (navnet øverst) — der køres alt på fjernværten.',
     '',
     '**Brug af AI-en**',
-    '- Skriv et spørgsmål i boksen her til højre; kodeblokke får knapperne **Kør**, **Insert** og **Copy**.',
-    '- **Setup → Hent modeller** henter stærkere modeller (Qwen3 8B, Qwen2.5 Coder 7B, DeepSeek R1 7B) til den indbyggede AI.',
+    '- Skriv et spørgsmål i boksen her til højre; kodeblokke får knapperne **Kør**, **Indsæt** og **Kopiér**.',
+    '- **Opsætning → Hent modeller** henter stærkere modeller (Qwen3 8B, Qwen2.5 Coder 7B, DeepSeek R1 7B) til den indbyggede AI.',
     '- Bed mig om en dybdegående diagnose via knappen herunder, hvis du vil have AI-en til at kigge på konteksten.',
-    err ? `_(Fejl: ${err}) — prøv igen senere.)_` : '',
+    err ? `_(Fejl: ${err} — prøv igen senere.)_` : '',
   ].filter(Boolean).join('\n');
 }
 
@@ -288,6 +293,8 @@ function startAgentJob(job) {
   }
   aiEls.input.value = '';
   aiState.agentRunning = true;
+  aiState.agentEventsBeforeStart = [];
+  aiState.agentStopRequested = false;
   aiEls.sendBtn.disabled = true;
   aiEls.stopBtn.hidden = false;
   aiEls.suggestions.innerHTML = '';
@@ -301,6 +308,15 @@ function startAgentJob(job) {
       return;
     }
     aiState.agentId = res.id;
+    if (aiState.agentStopRequested) window.lennart.agentStop(res.id);
+    const pending = aiState.agentEventsBeforeStart;
+    aiState.agentEventsBeforeStart = [];
+    for (const item of pending) {
+      if (item.id === aiState.agentId) renderAgentEvent(item.event);
+    }
+  }).catch((err) => {
+    agentFinished();
+    appendMessageEl('error', `Agent kunne ikke starte: ${err.message || err}`);
   });
 }
 
@@ -324,21 +340,27 @@ function renderAgentEvent(ev) {
   } else if (ev.type === 'done') {
     agentFinished();
     if (ev.text) appendMessageEl('assistant', ev.text);
+  } else if (ev.type === 'finished') {
+    agentFinished();
   }
 }
 
 function agentFinished() {
   aiState.agentRunning = false;
   aiState.agentId = null;
+  aiState.agentEventsBeforeStart = [];
+  aiState.agentStopRequested = false;
   aiEls.sendBtn.disabled = false;
+  aiEls.stopBtn.disabled = false;
   aiEls.stopBtn.hidden = true;
 }
 
 function onStopClicked() {
-  if (aiState.mode === 'agent' && aiState.agentId) {
-    window.lennart.agentStop(aiState.agentId);
-    appendStatus('Agent stoppet af bruger.');
-    agentFinished();
+  if (aiState.agentRunning) {
+    aiState.agentStopRequested = true;
+    if (aiState.agentId) window.lennart.agentStop(aiState.agentId);
+    aiEls.stopBtn.disabled = true;
+    appendStatus('Stopper agenten. En kommando, der allerede kører, kan fortsætte i terminalen.');
   } else if (aiState.currentId) {
     window.lennart.cancelChat(aiState.currentId);
   }
@@ -452,7 +474,7 @@ function failStreaming(error) {
     showLocalHelpFallback(error);
     return;
   }
-  appendMessageEl('error', `AI error: ${error}`);
+  appendMessageEl('error', `AI-fejl: ${error}`);
   scrollBottom(true);
 }
 
@@ -660,7 +682,7 @@ function maybeAutoRunFromAnswer(answer) {
     } else {
       appendStatus(`🤖 Kører i terminalen: ${cmd}`);
     }
-    runAiCommand(cmd);
+    runAiCommand(cmd).catch((err) => appendStatus(`Auto-kør fejlede: ${err.message || err}`, true));
   } catch (err) {
     appendStatus(`Auto-kør fejlede: ${err.message || err}`, true);
   }

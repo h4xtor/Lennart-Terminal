@@ -12,6 +12,7 @@
     "dev": "electron . --enable-logging",
     "test": "node test/run-all.js",
     "check": "node scripts/check.js",
+    "smoke": "node scripts/smoke-test.js",
     "pack": "electron-builder --dir",
     "dist": "electron-builder --win --x64 --publish never"
   },

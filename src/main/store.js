@@ -17,9 +17,18 @@ const path = require('path');
 const KNOWN_PROVIDERS = new Set([
   'lennart-local',
   'antigravity-cli',
-  'ollama', 'lmstudio', 'local', 'openai-compatible',
-  'openrouter', 'omniroute', 'openai', 'anthropic', 'gemini', 'qwen', 'kimi',
+  'ollama', 'lmstudio', 'llamacpp', 'openai-compatible',
+  'openrouter', 'omniroute', 'openai', 'anthropic', 'gemini', 'dashscope', 'moonshot',
 ]);
+
+// Provider ids used by older builds → their current equivalent. These used to
+// look "known" and slip through migration, leaving Settings with a provider
+// id that no longer exists in the catalog (empty select, chat errors).
+const PROVIDER_ALIASES = {
+  local: 'ollama',
+  qwen: 'dashscope',
+  kimi: 'moonshot',
+};
 
 const DEFAULTS = {
   version: 3.1,
@@ -132,10 +141,22 @@ class SettingsStore {
    */
   _migrateStaleProvider() {
     const ai = this.data && this.data.ai;
+    if (ai && PROVIDER_ALIASES[ai.provider]) {
+      ai.provider = PROVIDER_ALIASES[ai.provider];
+    }
     if (ai && ai.provider && !KNOWN_PROVIDERS.has(ai.provider)) {
       this.data.ai.provider = DEFAULTS.ai.provider;
       this.data.ai.model = '';
       this.data.version = DEFAULTS.version;
+    }
+    // Move the saved key/model record to the renamed provider as well.
+    const providers = this.data && this.data.providers;
+    if (isPlainObject(providers)) {
+      for (const [oldId, newId] of Object.entries(PROVIDER_ALIASES)) {
+        if (!providers[oldId]) continue;
+        providers[newId] = { ...providers[oldId], ...(providers[newId] || {}) };
+        delete providers[oldId];
+      }
     }
   }
 

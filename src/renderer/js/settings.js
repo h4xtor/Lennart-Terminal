@@ -34,7 +34,7 @@ async function loadSettingsUi() {
   document.getElementById('set-confirm').checked = currentSettings.confirmDestructive !== false;
   document.getElementById('set-agent-engine').value = currentSettings.agentEngine || 'builtin';
   document.getElementById('set-agent-autoapprove').checked = currentSettings.agentAutoApprove === true;
-  document.getElementById('agent-mode-state').textContent = currentSettings.agentMode !== false ? 'On' : 'Off';
+  document.getElementById('agent-mode-state').textContent = currentSettings.agentMode !== false ? 'Til' : 'Fra';
 
   // Model settings (ctx / threads / max tokens / top-p / auto-run) + colours
   const lai = currentSettings.localAI || {};
@@ -50,8 +50,13 @@ async function loadSettingsUi() {
   updateAgyFieldVisibility();
 
   const paths = await window.lennart.getPaths();
+  window.__lennartVersion = paths.version;
   document.getElementById('settings-paths').textContent =
-    `Settings: ${paths.settingsFile}\nVersion: v${paths.version} · ${paths.platform}`;
+    `Indstillinger: ${paths.settingsFile}\nVersion: v${paths.version} · ${paths.platform}`;
+  const aboutVersion = document.getElementById('about-version');
+  if (aboutVersion) aboutVersion.textContent = `v${paths.version}`;
+  const aboutStatus = document.getElementById('about-update-status');
+  if (aboutStatus) aboutStatus.textContent = `Du kører v${paths.version}.`;
 }
 
 function fillProviderSelect() {
@@ -70,7 +75,7 @@ function fillProviderSelect() {
     }
     sel.appendChild(og);
   }
-  sel.value = currentSettings.ai.provider || 'ollama';
+  sel.value = currentSettings.ai.provider || 'lennart-local';
 }
 
 async function applyProviderSelection() {
@@ -100,7 +105,7 @@ async function applyProviderSelection() {
       ? '<span class="ok">&#10004; Kører — offline PowerShell-assistent klar</span>'
       : (st.binary && st.model
         ? '<span class="ok">&#10004; Downloadet — startes automatisk</span>'
-        : '<span class="err">&#9888; Hentes ved førstehjælp (~1 GB, kræver internet én gang)</span>');
+        : '<span class="err">&#9888; Hentes ved første start (~1 GB, kræver internet én gang)</span>');
   } else if (info.protocol === 'agy') {
     statusEl.innerHTML = '<span class="ok">&#10004; Lokal agent-motor — v&#230;lg den under Agent</span>';
   } else if (info.needsKey && !stored.apiKey) {
@@ -157,7 +162,7 @@ async function refreshModelList() {
     else sel.selectedIndex = 0;
     if (hint) {
       hint.textContent = res.models.length > 1
-        ? `${res.models.length} modeller fundet lokalt — vælg en og tryk Save.`
+        ? `${res.models.length} modeller fundet lokalt — vælg en og tryk Gem.`
         : 'Modeller på USB-stikket listes her; tryk “Hent modeller” for at se og hente flere.';
     }
     updateFetchModelButton();
@@ -175,10 +180,9 @@ async function refreshModelList() {
     apiKey: document.getElementById('set-apikey').value.trim(),
   };
 
-  sel.innerHTML = '<option value="">loading…</option>';
-  const res = cfg.baseUrl
-    ? await window.lennart.listModels(cfg)
-    : { ok: false, error: 'No endpoint configured' };
+  sel.innerHTML = '<option value="">henter…</option>';
+  // The main process resolves an empty override to the provider's default URL.
+  const res = await window.lennart.listModels(cfg);
 
   sel.innerHTML = '';
   if (res.ok && res.models.length) {
@@ -202,7 +206,7 @@ async function refreshModelList() {
 async function testConnection() {
   const el = document.getElementById('conn-result');
   el.className = '';
-  el.textContent = 'Testing…';
+  el.textContent = 'Tester…';
 
   const pid = document.getElementById('set-provider').value;
   if (pid === 'lennart-local') {
@@ -247,7 +251,9 @@ function toggleModelPanel() {
   // Always draw the local model manager directly — it must work even when
   // the Settings dialog (and its provider select) has never been opened.
   renderModelPanel();
-  refreshModelList(); // keeps the <select> in sync as before
+  // Only sync the <select> once a provider is actually selected; calling it
+  // with an empty select triggered a pointless "no endpoint" request.
+  if (document.getElementById('set-provider').value) refreshModelList();
 }
 
 async function renderModelPanel() {
@@ -258,7 +264,10 @@ async function renderModelPanel() {
   try {
     res = await window.lennart.localaiListModels();
   } catch (err) {
-    list.innerHTML = `<div class="mp-row">Kunne ikke hente listen: ${err.message || err}</div>`;
+    const row = document.createElement('div');
+    row.className = 'mp-row';
+    row.textContent = `Kunne ikke hente listen: ${err.message || err}`;
+    list.replaceChildren(row);
     return;
   }
   window.__localaiCatalog = res;
@@ -332,11 +341,13 @@ async function downloadPanelModel(id, btn) {
       window.alert(`Download fejlede: ${res.error}`);
       return;
     }
-    // Sync the model <select>, pick the fresh model and redraw the panel
+    // Sync the model <select>, pick the fresh model and redraw the panel.
+    // Local models are identified by their file stem, not by the catalogue id.
     await refreshModelList();
+    const modelId = String(entry.file || '').replace(/\.gguf$/i, '');
     const sel = document.getElementById('set-model');
-    if (sel && [...sel.options].some((o) => o.value === entry.id)) {
-      sel.value = entry.id;
+    if (sel && [...sel.options].some((o) => o.value === modelId)) {
+      sel.value = modelId;
       updateFetchModelButton();
     }
     await renderModelPanel();
@@ -369,7 +380,8 @@ async function fetchSelectedLocalModel() {
     const before = document.getElementById('set-model').value;
     await refreshModelList();
     const sel = document.getElementById('set-model');
-    if ([...sel.options].some((o) => o.value === entry.id)) sel.value = entry.id;
+    const modelId = String(entry.file || '').replace(/\.gguf$/i, '');
+    if ([...sel.options].some((o) => o.value === modelId)) sel.value = modelId;
     else sel.value = before;
     updateFetchModelButton();
   } finally {
@@ -440,13 +452,14 @@ function updateAiHeaderModel() {
   const s = window.__lennartSettings || {};
   const pid = (s.ai && s.ai.provider) || 'lennart-local';
   const info = (window.__providerCatalog && window.__providerCatalog.providers[pid]) || {};
-  let model = (s.ai && s.ai.model) || 'ingen model';
-  if (pid === 'lennart-local') {
-    model = (s.ai && s.ai.model) ? s.ai.model : 'hardcoded model';
-  }
+  // The built-in provider's label already names the model, so don't repeat
+  // "indbygget model" when the user has not picked a specific GGUF file.
+  // The built-in provider's label already names the model family; the exact
+  // GGUF id is long and belongs in Settings, not in the header.
+  const model = pid === 'lennart-local' ? '' : ((s.ai && s.ai.model) || 'ingen model');
   const fallbackLabel = pid === 'lennart-local' ? 'Indbygget AI (offline)' : pid;
   const el = document.getElementById('ai-model-label');
-  if (el) el.textContent = `${info.label || fallbackLabel} · ${model}`;
+  if (el) el.textContent = [info.label || fallbackLabel, model].filter(Boolean).join(' · ');
 }
 
 window.__updateAiHeaderModel = updateAiHeaderModel;

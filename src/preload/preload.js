@@ -17,6 +17,17 @@ try {
   );
 } catch (e) { /* diagnostics only */ }
 
+/**
+ * Subscribe to an IPC push channel and return an unsubscribe function.
+ * Every terminal tab registers its own listeners, so without this they piled
+ * up forever after tabs were closed.
+ */
+function subscribe(channel, cb) {
+  const handler = (_event, payload) => cb(payload);
+  ipcRenderer.on(channel, handler);
+  return () => ipcRenderer.removeListener(channel, handler);
+}
+
 contextBridge.exposeInMainWorld('lennart', {
   // terminal
   createTerminal: (opts) => ipcRenderer.invoke('terminal:create', opts),
@@ -68,6 +79,14 @@ contextBridge.exposeInMainWorld('lennart', {
   // permanent history
   historyQuery: (opts) => ipcRenderer.invoke('history:query', opts),
   historyClear: () => ipcRenderer.invoke('history:clear'),
+
+  // GitHub updates (portable Windows build)
+  checkForUpdates: () => ipcRenderer.invoke('update:check'),
+  downloadUpdate: () => ipcRenderer.invoke('update:download'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  updateStatus: () => ipcRenderer.invoke('update:status'),
+  pendingUpdate: () => ipcRenderer.invoke('update:pending'),
+  onUpdateProgress: (cb) => subscribe('update:progress', cb),
 
   // misc
   getPaths: () => ipcRenderer.invoke('app:getPaths'),

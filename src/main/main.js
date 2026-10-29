@@ -21,6 +21,7 @@ const { AgentSession } = require('./agent');
 const { LocalAI, LOCAL_MODEL } = require('./localai');
 const { RemoteRunner, sshSetupCommand } = require('./remote');
 const { HistoryStore } = require('./history');
+const { Updater } = require('./updater');
 
 // Never let Chromium background the terminal: when another window fully
 // covers Lennart Terminal the page flips to visibilityState "hidden", which
@@ -61,13 +62,73 @@ const settings = new SettingsStore();
 const ptyManager = new TerminalManager();
 
 let mainWindow = null;
+
+// GitHub updater for the portable Windows builds. The main process owns all
+// network/install work; the renderer only receives a sanitised status object.
+const updater = new Updater({
+  currentVersion: app.getVersion(),
+  dataDir: settings.dataDir,
+  isPackaged: app.isPackaged,
+  portableExe: process.env.PORTABLE_EXECUTABLE_FILE || '',
+  log: logDiag,
+  onProgress: (progress) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update:progress', progress);
+    }
+  },
+});
 const activeChats = new Map();          // chat id -> AbortController
+const terminalInput = new Map();        // PTY id -> line buffer for typed-command history
 
 // Diagnostic: proves whether a (re)launched process actually reaches main.js
 logDiag(`[boot] pid=${process.pid} argv=${JSON.stringify(process.argv.slice(1))}`);
 
 // Permanent history (portable: lives on the USB stick's Data folder)
 const historyStore = new HistoryStore(path.join(settings.dataDir, 'history.jsonl'));
+
+/**
+ * Record commands typed directly into a terminal tab. xterm writes one
+ * keystroke at a time, so the old "data ends with a carriage return" check
+ * only ever saw the prompt box / AI commands — never what the user typed.
+ * Escape sequences (arrow keys, paste markers) and editing keys are ignored.
+ */
+function recordTerminalInput(id, data) {
+  if (typeof data !== 'string' || !data) return;
+  let st = terminalInput.get(id);
+  if (!st) {
+    st = { line: '', escape: 0 };
+    terminalInput.set(id, st);
+  }
+  for (const ch of data) {
+    const code = ch.charCodeAt(0);
+    // 0 = normal, 1 = saw ESC, 2 = inside a CSI sequence
+    if (st.escape === 1) {
+      if (ch === '[' || ch === 'O') { st.escape = 2; continue; }
+      // Lone ESC (clears the shell line) or Alt+key — drop the ESC byte and
+      // process this character as ordinary input instead of swallowing it.
+      st.escape = 0;
+    }
+    if (st.escape === 2) {
+      if (code >= 64 && code <= 126) {
+        // Up/down replace the shell's whole input line (history recall), so
+        // the buffer must not record the text that was there before.
+        if (ch === 'A' || ch === 'B') st.line = '';
+        st.escape = 0;
+      }
+      continue;
+    }
+    if (code === 27) { st.escape = 1; continue; }                 // ESC
+    if (code === 13 || code === 10) {                             // Enter
+      const cmd = st.line.trim();
+      st.line = '';
+      if (cmd) historyStore.add({ type: 'local', command: cmd });
+      continue;
+    }
+    if (code === 127 || code === 8) { st.line = st.line.slice(0, -1); continue; } // Backspace
+    if (code === 3 || code === 21) { st.line = ''; continue; }    // Ctrl+C / Ctrl+U
+    if (code >= 32) st.line = (st.line + ch).slice(-4000);
+  }
+}
 
 // Embedded offline AI (llama.cpp + hardcoded PowerShell model)
 // Root lives in the data dir, so portable mode keeps it on the USB stick
@@ -113,8 +174,12 @@ function migrateLocalAiAssets() {
           }
         }
       };
-      moveAll(path.join(legacyRoot, 'models'), path.join(target, 'models'));
-      moveAll(path.join(legacyRoot, 'llama-cpp'), path.join(target, 'llama-cpp'));
+      if (fs.existsSync(path.join(legacyRoot, 'models'))) {
+        moveAll(path.join(legacyRoot, 'models'), path.join(target, 'models'));
+      }
+      if (fs.existsSync(path.join(legacyRoot, 'llama-cpp'))) {
+        moveAll(path.join(legacyRoot, 'llama-cpp'), path.join(target, 'llama-cpp'));
+      }
       logDiag('[localai] legacy assets migrated into portable data dir');
     }
     // Legacy copy removed afterwards — nothing should keep using it
@@ -205,8 +270,10 @@ function createWindow() {
 
   mainWindow.on('resize', saveBounds);
   mainWindow.on('move', saveBounds);
+  mainWindow.on('close', flushBounds);
 
   mainWindow.on('closed', () => {
+    clearTimeout(boundsTimer);
     mainWindow = null;
   });
 
@@ -367,7 +434,18 @@ ipcMain.handle('app:relaunchAdmin', () => {
   return { started: relaunchElevated() };
 });
 
+let boundsTimer = null;
+
+// Resize/move fire many times per second. Writing settings.json synchronously
+// on every event was unnecessary disk I/O — debounce and flush on close.
 function saveBounds() {
+  clearTimeout(boundsTimer);
+  boundsTimer = setTimeout(flushBounds, 350);
+}
+
+function flushBounds() {
+  clearTimeout(boundsTimer);
+  boundsTimer = null;
   if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isMinimized()) {
     settings.set('windowBounds', mainWindow.getBounds());
   }
@@ -377,27 +455,27 @@ function saveBounds() {
 function buildMenu() {
   const template = [
     {
-      label: 'File',
+      label: 'Filer',
       submenu: [
-        { label: 'New Tab', accelerator: 'CmdOrCtrl+T', click: () => sendAction('new-tab') },
-        { label: 'Close Tab', accelerator: 'CmdOrCtrl+W', click: () => sendAction('close-tab') },
+        { label: 'Ny fane', accelerator: 'CmdOrCtrl+T', click: () => sendAction('new-tab') },
+        { label: 'Luk fane', accelerator: 'CmdOrCtrl+W', click: () => sendAction('close-tab') },
         { type: 'separator' },
-        { label: 'Settings', accelerator: 'CmdOrCtrl+,', click: () => sendAction('settings') },
+        { label: 'Indstillinger', accelerator: 'CmdOrCtrl+,', click: () => sendAction('settings') },
         { type: 'separator' },
-        { role: 'quit' },
+        { role: 'quit', label: 'Afslut' },
       ],
     },
     {
-      label: 'View',
+      label: 'Vis',
       submenu: [
-        { label: 'Toggle AI Panel', accelerator: 'CmdOrCtrl+J', click: () => sendAction('toggle-ai') },
+        { label: 'Vis/skjul AI-panel', accelerator: 'CmdOrCtrl+J', click: () => sendAction('toggle-ai') },
         { label: 'Historik', accelerator: 'CmdOrCtrl+H', click: () => sendAction('history') },
         { type: 'separator' },
-        { label: 'Zoom In', accelerator: 'CmdOrCtrl+=', click: () => mainWindow?.webContents.zoomIn() },
-        { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => mainWindow?.webContents.zoomOut() },
-        { label: 'Reset Zoom (100%)', accelerator: 'CmdOrCtrl+0', click: () => mainWindow?.webContents.setZoomLevel(0) },
+        { label: 'Zoom ind', accelerator: 'CmdOrCtrl+=', click: () => mainWindow?.webContents.zoomIn() },
+        { label: 'Zoom ud', accelerator: 'CmdOrCtrl+-', click: () => mainWindow?.webContents.zoomOut() },
+        { label: 'Nulstil zoom (100 %)', accelerator: 'CmdOrCtrl+0', click: () => mainWindow?.webContents.setZoomLevel(0) },
         { type: 'separator' },
-        { role: 'toggleDevTools' },
+        { role: 'toggleDevTools', label: 'Udviklerværktøjer' },
       ],
     },
   ];
@@ -427,11 +505,9 @@ ipcMain.handle('terminal:create', (_e, { shell }) => {
 
 ipcMain.on('terminal:write', (_e, { id, data }) => {
   ptyManager.write(id, data);
-  // Permanent history: full lines written to the PTY (prompt box, AI Run,
-  // pasted commands). Single keystrokes are ignored.
-  if (typeof data === 'string' && data.length > 2 && data.endsWith('\r')) {
-    historyStore.add({ type: 'local', command: data.slice(0, -1).replace(/\r\n/g, '') });
-  }
+  // Permanent history: every completed line, whether it was typed directly
+  // in the tab, pasted, or written by the prompt box / AI Run.
+  recordTerminalInput(id, data);
 });
 
 ipcMain.on('terminal:resize', (_e, { id, cols, rows }) => {
@@ -439,6 +515,7 @@ ipcMain.on('terminal:resize', (_e, { id, cols, rows }) => {
 });
 
 ipcMain.on('terminal:destroy', (_e, { id }) => {
+  terminalInput.delete(id);
   ptyManager.destroy(id);
 });
 
@@ -450,6 +527,7 @@ ptyManager.on('data', (id, data) => {
 });
 
 ptyManager.on('exit', (id, code) => {
+  terminalInput.delete(id);
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('terminal:exit', { id, code });
   }
@@ -462,12 +540,18 @@ ptyManager.on('exit', (id, code) => {
 ipcMain.handle('settings:get', () => settings.getAll());
 
 ipcMain.handle('settings:set', (_e, patch) => {
+  const previousLocalAI = settings.get('localAI') || {};
   settings.set(patch);
-  // Model settings changed → apply to the embedded AI server; stop it so
-  // the next chat restarts llama-server with the new ctx/threads.
+  // Only restart the embedded AI when ctx/threads really changed. The renderer
+  // sends the whole localAI block on every save (theme, agent, …), so stopping
+  // unconditionally made "AI: Online" flip to idle after any settings save.
   if (patch && patch.localAI) {
-    localAI.configure(settings.get('localAI') || {});
-    localAI.stop();
+    const next = settings.get('localAI') || {};
+    if (Number(next.ctx) !== Number(previousLocalAI.ctx) ||
+        Number(next.threads) !== Number(previousLocalAI.threads)) {
+      localAI.configure(next);
+      localAI.stop();
+    }
   }
   return settings.getAll();
 });
@@ -724,9 +808,22 @@ ipcMain.handle('agent:start', async (_e, { sessionId, job }) => {
   const cleanJob = String(job || '').slice(0, 4000).trim();
   if (!cleanJob) return { ok: false, error: 'tomt job' };
 
+  const agentSettings = settings.getAll();
   let aiConfig;
   try {
-    aiConfig = await resolveLocalProvider(effectiveAiConfig());
+    // "Agent-motor" in Settings decides who drives the loop. The AI provider
+    // setting only chooses the brain for the built-in autopilot; selecting
+    // Antigravity must not start/download the embedded local AI first.
+    if (agentSettings.agentEngine === 'antigravity') {
+      aiConfig = {
+        provider: 'antigravity-cli',
+        model: agentSettings.agyModel || '',
+        baseUrl: '',
+        apiKey: '',
+      };
+    } else {
+      aiConfig = await resolveLocalProvider(effectiveAiConfig());
+    }
   } catch (err) {
     return { ok: false, error: `Lokal AI kunne ikke starte: ${err.message || err}` };
   }
@@ -735,7 +832,7 @@ ipcMain.handle('agent:start', async (_e, { sessionId, job }) => {
     id,
     job: cleanJob,
     aiConfig,
-    settings: settings.getAll(),
+    settings: agentSettings,
     deps: {
       emit: (agentId, event) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -753,7 +850,22 @@ ipcMain.handle('agent:start', async (_e, { sessionId, job }) => {
   });
 
   agentSessions.set(id, session);
-  session.run().finally(() => agentSessions.delete(id));
+  // Start after the IPC reply so the renderer knows the id before events arrive.
+  setTimeout(async () => {
+    try {
+      const result = await session.run();
+      if (!result.ok && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('agent:event', { id, event: { type: 'finished' } });
+      }
+    } catch (err) {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('agent:event', { id, event: { type: 'error', text: String(err.message || err) } });
+        mainWindow.webContents.send('agent:event', { id, event: { type: 'finished' } });
+      }
+    } finally {
+      agentSessions.delete(id);
+    }
+  }, 0);
   return { ok: true, id };
 });
 
@@ -848,6 +960,7 @@ ipcMain.handle('app:getPaths', () => ({
   temp: os.tmpdir(),
   version: app.getVersion(),
   platform: process.platform,
+  updateSupported: process.platform === 'win32',
 }));
 
 ipcMain.handle('app:openPath', async (_e, target) => {
@@ -866,6 +979,19 @@ ipcMain.handle('app:openPath', async (_e, target) => {
 ipcMain.handle('app:revealSettingFile', async () => {
   await shell.showItemInFolder(settings.file);
   return { ok: true };
+});
+
+ipcMain.handle('update:check', () => updater.check());
+ipcMain.handle('update:status', () => updater.getStatus());
+ipcMain.handle('update:pending', () => updater.takePending());
+ipcMain.handle('update:download', () => updater.download());
+ipcMain.handle('update:install', async () => {
+  const result = await updater.install();
+  // Give the renderer time to paint "Genstarter…" before the window closes.
+  // The detached PowerShell helper waits for this PID, swaps the EXE and
+  // starts the new build once Windows has released the old file.
+  if (result.ok) setTimeout(() => app.quit(), 900);
+  return result;
 });
 
 ipcMain.on('app:devtools', () => {

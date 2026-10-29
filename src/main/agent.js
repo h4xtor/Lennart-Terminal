@@ -76,11 +76,13 @@ class AgentSession {
     this.settings = settings || {};
     this.deps = deps;                // { emit, run, confirm, log }
     this.aborted = false;
+    this.abortController = new AbortController();
     this.stepCount = 0;
   }
 
   abort() {
     this.aborted = true;
+    this.abortController.abort();
   }
 
   async run() {
@@ -98,6 +100,7 @@ class AgentSession {
       try {
         decision = useAgy ? await this.askAgy(history) : await this.askModel(history, cfg);
       } catch (err) {
+        if (this.aborted) return { ok: false, aborted: true };
         emit({ type: 'error', text: String(err.message || err) });
         return { ok: false, error: String(err.message || err) };
       }
@@ -123,7 +126,11 @@ class AgentSession {
         return { ok: false, error: 'hard-denied command' };
       }
 
-      if (this.settings.confirmDestructive !== false && isDestructive(cmd)) {
+      // Settings → Agent: "Auto-godkend agent-kommandoer" skips the
+      // destructive-command dialog (the hard deny-list still applies).
+      const needsApproval = this.settings.confirmDestructive !== false &&
+        this.settings.agentAutoApprove !== true;
+      if (needsApproval && isDestructive(cmd)) {
         emit({ type: 'status', text: `Venter på godkendelse: ${cmd}` });
         const ok = await this.deps.confirm(cmd);
         if (!ok) {
@@ -131,6 +138,9 @@ class AgentSession {
           return { ok: false, error: 'user denied' };
         }
       }
+
+      // A stop while a confirmation dialog was open must not run the command.
+      if (this.aborted) return { ok: false, aborted: true };
 
       // ---- run ----
       emit({ type: 'command', text: cmd, thought: decision.thought });
@@ -191,7 +201,10 @@ class AgentSession {
       '',
       'Reply with ONLY the JSON object for the next step.',
     ].join('\n');
-    const res = await runAgyAgent({ prompt, onEvent: null });
+    const res = await runAgyAgent({
+      prompt, onEvent: null, model: this.aiConfig.model || undefined,
+      allowTools: false, signal: this.abortController.signal,
+    });
     return parseDecision(res.text || '');
   }
 }

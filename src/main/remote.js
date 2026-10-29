@@ -1,11 +1,12 @@
 'use strict';
 
 /**
- * Network execution: run commands on remote Windows PCs over the LAN.
+ * Network execution: run commands on remote machines over the LAN.
  *
  * Two transports:
- *  - ssh   (recommended): Windows OpenSSH client (`ssh user@host powershell …`),
- *          works with a key file for fully non-interactive runs.
+ *  - ssh   (recommended): OpenSSH (`ssh user@host powershell -EncodedCommand …`),
+ *          works with a key file and also reaches Linux/macOS hosts that have
+ *          PowerShell 7 exposed as `powershell.exe`.
  *  - winrm: PowerShell Remoting (`Invoke-Command … -Credential …`), requires
  *          WinRM to be enabled on the target. Password is passed via an
  *          EncodedCommand so it never scrolls by in the visible terminal.
@@ -77,13 +78,16 @@ function buildRemoteArgv(host, method, command, opts) {
   }
   // ssh (default) — key path optional. The command travels as an encoded
   // PowerShell blob: plain arguments get re-split by the remote cmd.exe and
-  // break quotes, pipes and $variables.
+  // break quotes, pipes and $variables. Linux/macOS: install PowerShell 7 and
+  // make `powershell.exe` resolve to pwsh.
   const args = ['-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=8', '-o', 'BatchMode=yes'];
   if (o.keyPath) args.push('-i', o.keyPath);
   args.push(o.username ? `${o.username}@${host}` : host);
-  const encoded = b64Utf16(`[Console]::OutputEncoding = [Text.Encoding]::UTF8\n${command}`);
+  const encoded = b64Utf16(`[Console]::OutputEncoding = [Text.Encoding]::UTF8
+${command}`);
   if (encoded.length <= SSH_ENCODED_MAX) {
-    args.push('powershell.exe', '-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', encoded);
+    // -OutputFormat Text: without it PowerShell serialises errors as CLIXML over SSH
+    args.push('powershell.exe', '-NoLogo', '-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-EncodedCommand', encoded);
   } else {
     args.push('powershell.exe', '-NoLogo', '-NoProfile', '-Command', command);
   }
@@ -120,6 +124,7 @@ class RemoteRunner {
     return new Promise((resolve) => {
       let out = '';
       let timedOut = false;
+      let settled = false;
       this.log(`remote: ${hostCfg.method || 'ssh'} ${hostCfg.host}: ${command.slice(0, 120)}`);
 
       let child;
@@ -135,6 +140,12 @@ class RemoteRunner {
         try { child.kill(); } catch { /* already dead */ }
       }, limit);
 
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(result);
+      };
       // Decode across chunk boundaries (a multi-byte æ/ø/å may be split)
       const { StringDecoder } = require('string_decoder');
       const dec = { out: new StringDecoder('utf8'), err: new StringDecoder('utf8') };
@@ -148,21 +159,20 @@ class RemoteRunner {
       child.stderr.on('data', onData('err'));
 
       child.on('error', (err) => {
-        clearTimeout(timer);
-        resolve({ ok: false, code: -1, output: out + `\n[fejl: ${err.message}]`, timedOut });
+        finish({ ok: false, code: -1, output: out + `\n[fejl: ${err.message}]`, timedOut });
       });
-      // 'close' (not 'exit'): fires after stdout/stderr are fully drained,
-      // so the last lines of output are never lost
+      // 'close' (not 'exit') guarantees stdout/stderr are fully drained, so
+      // the returned output and the permanent history do not miss the tail.
       child.on('close', (code) => {
-        clearTimeout(timer);
-        resolve({ ok: !timedOut && code === 0, code: code === null ? -1 : code, output: out, timedOut });
+        finish({ ok: !timedOut && code === 0, code: code === null ? -1 : code, output: out, timedOut });
       });
     });
   }
 
   /** Quick reachability test for the add/edit host dialog. */
   test(hostCfg) {
-    return this.run(`test_${Date.now()}`, hostCfg, '$env:COMPUTERNAME', 15000);
+    // `hostname` works on Windows PowerShell and on PowerShell 7 for Linux.
+    return this.run(`test_${Date.now()}`, hostCfg, 'hostname', 15000);
   }
 }
 
